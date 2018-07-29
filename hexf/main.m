@@ -7,6 +7,7 @@
 //
 
 #import <Cocoa/Cocoa.h>
+#import "HFController.h"
 #include <sys/select.h>
 
 static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
@@ -22,7 +23,7 @@ static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
             "Usage:\n"
             "\n"
             "  Open files:\n"
-            "    hexf file1 [file2 file3 ...]\n"
+            "    hexf [-e insert|overwrite|readonly] file1 [file2 file3 ...]\n"
             "\n"
             "  Compare files:\n"
             "    hexf -d file1 file2\n"
@@ -100,6 +101,7 @@ static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
     const NSUInteger argsCount = args.count;
     NSString *diffLeftFile = nil;
     NSString *diffRightFile = nil;
+    NSNumber *editMode = nil;
     if (argsCount == 4 && [args[1] isEqualToString:@"-d"]) {
         diffLeftFile = [self standardizePath:args[2]];
         diffRightFile = [self standardizePath:args[3]];
@@ -110,6 +112,24 @@ static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
                 if ([arg isEqualToString:@"-h"] || [arg isEqualToString:@"--help"]) {
                     (void)[self printUsage];
                     return EXIT_SUCCESS;
+                } else if ([arg isEqualToString:@"-e"]) {
+                    @try {
+                        NSString *modeStr = args[i + 1];
+                        if ([modeStr isEqualToString:@"insert"]) {
+                            editMode = @(HFInsertMode);
+                        } else if ([modeStr isEqualToString:@"overwrite"]) {
+                            editMode = @(HFOverwriteMode);
+                        } else if ([modeStr isEqualToString:@"readonly"]) {
+                            editMode = @(HFReadOnlyMode);
+                        } else {
+                            return [self printUsage];
+                        }
+                        ++i;
+                        continue;
+                    } @catch (NSException *ex) {
+                        // assuming array out of bounds
+                        return [self printUsage];
+                    }
                 }
                 return [self printUsage];
             }
@@ -119,18 +139,21 @@ static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
     if (self.appRunning) {
         // App is already running so post distributed notification
         NSString *name = nil;
-        NSDictionary *userInfo = nil;
+        NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
         if (diffLeftFile && diffRightFile) {
             name = @"HFDiffFilesNotification";
-            userInfo = @{@"files": @[diffLeftFile, diffRightFile]};
+            userInfo[@"files"] = @[diffLeftFile, diffRightFile];
         } else {
             name = @"HFOpenFileNotification";
-            userInfo = @{@"files": filesToOpen};
+            userInfo[@"files"] = filesToOpen;
+            if (editMode) {
+                userInfo[@"editMode"] = editMode;
+            }
         }
         [[NSDistributedNotificationCenter defaultCenter] postNotificationName:name object:nil userInfo:userInfo deliverImmediately:YES];
     } else {
         // App isn't running so launch it with custom args
-        NSMutableArray *launchArgs = [NSMutableArray array];
+        NSMutableArray<NSString *> *launchArgs = [NSMutableArray array];
         if (diffLeftFile && diffRightFile) {
             [launchArgs addObject:@"-HFDiffLeftFile"];
             [launchArgs addObject:diffLeftFile];
@@ -140,6 +163,10 @@ static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
             for (NSString *fileToOpen in filesToOpen) {
                 [launchArgs addObject:@"-HFOpenFile"];
                 [launchArgs addObject:fileToOpen];
+            }
+            if (editMode) {
+                [launchArgs addObject:@"-HFEditFile"];
+                [launchArgs addObject:editMode.stringValue];
             }
         }
         if (![self launchAppWithArgs:launchArgs]) {

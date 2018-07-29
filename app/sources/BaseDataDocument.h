@@ -123,4 +123,6 @@ extern NSString * const BaseDataDocumentDidChangeStringEncodingNotification;
 
 - (void)insertData:(NSData *)data;
 
+- (void)setEditMode:(HFEditMode)mode;
+
 @end

@@ -1640,20 +1640,22 @@ cancelled:;
 
 - (IBAction)setOverwriteMode:sender {
     USE(sender);
-    [controller setEditMode:HFOverwriteMode];
-    [self updateDocumentWindowTitle];
+    [self setEditMode:HFOverwriteMode];
 }
 
 - (IBAction)setInsertMode:sender {
     USE(sender);
-    [controller setEditMode:HFInsertMode];
-    [self updateDocumentWindowTitle];    
+    [self setEditMode:HFInsertMode];
 }
 
 - (IBAction)setReadOnlyMode:sender {
     USE(sender);
-    [controller setEditMode:HFReadOnlyMode];
-    [self updateDocumentWindowTitle];    
+    [self setEditMode:HFReadOnlyMode];
+}
+
+- (void)setEditMode:(HFEditMode)mode {
+    [controller setEditMode:mode];
+    [self updateDocumentWindowTitle];
 }
 
 - (IBAction)setLineNumberFormat:(id)sender

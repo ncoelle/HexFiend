@@ -6,6 +6,7 @@
 //
 
 #import "FileDataDocument.h"
+#import "MyDocumentController.h"
 
 static inline Class preferredByteArrayClass(void) {
     return [HFAttributedByteArray class];
@@ -30,9 +31,13 @@ static inline Class preferredByteArrayClass(void) {
         [controller setByteArray:byteArray];
         result = YES;
 
-        if ([fileReference isPrivileged])
+        MyDocumentController *dc = (MyDocumentController *)[NSDocumentController sharedDocumentController];
+        if ([fileReference isPrivileged]) {
             [controller setEditMode:HFReadOnlyMode];
-        else {
+        } else if (dc.overriddenEditMode) {
+            [controller setEditMode:dc.overriddenEditMode.intValue];
+            dc.overriddenEditMode = nil;
+        } else {
             [controller setEditMode:[[NSUserDefaults standardUserDefaults] integerForKey:@"DefaultEditMode"]];
         }
     }

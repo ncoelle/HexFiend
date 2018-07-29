@@ -15,4 +15,6 @@
 /* Similar to TextEdit */
 - (BaseDataDocument *)transientDocumentToReplace;
 
+@property NSNumber *overriddenEditMode;
+
 @end

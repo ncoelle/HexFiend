@@ -62,6 +62,11 @@
     [ndc addObserverForName:@"HFOpenFileNotification" object:nil queue:nil usingBlock:^(NSNotification * _Nonnull notification) {
         [NSApp activateIgnoringOtherApps:YES];
         NSDictionary *userInfo = notification.userInfo;
+        NSNumber *editMode = userInfo[@"editMode"];
+        if (editMode) {
+            MyDocumentController *dc = (MyDocumentController *)[NSDocumentController sharedDocumentController];
+            dc.overriddenEditMode = editMode;
+        }
         NSArray *files = [userInfo objectForKey:@"files"];
         if ([files isKindOfClass:[NSArray class]]) {
             for (NSString *file in files) {
@@ -359,7 +364,7 @@ static NSComparisonResult compareFontDisplayNames(NSFont *a, NSFont *b, void *un
 - (void)parseCommandLineArguments {
     if (!self.parsedCommandLineArgs) {
         NSMutableArray *filesToOpen = [NSMutableArray array];
-        NSArray *args = [[NSProcessInfo processInfo] arguments];
+        NSArray<NSString *> *args = [[NSProcessInfo processInfo] arguments];
         // first argument is process path
         if (args.count > 1 && (args.count - 1) % 2 == 0) {
             for (NSUInteger i = 1; i < args.count; i += 2) {
@@ -379,6 +384,9 @@ static NSComparisonResult compareFontDisplayNames(NSFont *a, NSFont *b, void *un
                         NSLog(@"Feature not available on 10.8");
                     }
                     self.dataToOpen = data;
+                } else if ([arg isEqualToString:@"-HFEditMode"]) {
+                    MyDocumentController *dc = (MyDocumentController *)[NSDocumentController sharedDocumentController];
+                    dc.overriddenEditMode = [NSNumber numberWithInt:args[i + 1].intValue];
                 }
             }
         }
