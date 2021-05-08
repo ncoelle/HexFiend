@@ -6,6 +6,7 @@
 //
 
 #import <HexFiend/HFTextSelectionPulseView.h>
+#import <HexFiend/HFFunctions.h>
 
 
 @implementation HFTextSelectionPulseView
@@ -13,7 +14,7 @@
 - (void)drawRect:(NSRect)rect {
     USE(rect);
     CGContextSetInterpolationQuality(HFGraphicsGetCurrentContext(), kCGInterpolationHigh);
-    [image drawInRect:[self bounds] fromRect:NSZeroRect operation:NSCompositeCopy fraction:(CGFloat)1.];
+    [image drawInRect:[self bounds] fromRect:NSZeroRect operation:NSCompositingOperationCopy fraction:(CGFloat)1.];
 }
 
 - (void)setImage:(NSImage *)val {

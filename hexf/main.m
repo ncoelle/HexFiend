@@ -7,7 +7,6 @@
 //
 
 #import <Cocoa/Cocoa.h>
-#include <sys/select.h>
 
 static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
 
@@ -57,18 +56,7 @@ static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
     return YES;
 }
 
-- (BOOL)standardInputHasData {
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    FD_SET(STDIN_FILENO, &rfds);
-    struct timeval timeout = {0, 0};
-    return select(1, &rfds, NULL, NULL, &timeout) == 1;
-}
-
 - (BOOL)processStandardInput {
-    if (!self.standardInputHasData) {
-        return NO;
-    }
     NSFileHandle *inFile = [NSFileHandle fileHandleWithStandardInput];
     NSData *data = [inFile readDataToEndOfFile];
     if (data.length == 0) {
@@ -81,13 +69,7 @@ static NSString *kAppIdentifier = @"com.ridiculousfish.HexFiend";
         return YES;
     }
     // App isn't running so launch it with custom args
-    NSString *base64Str = nil;
-    if (@available(macOS 10.9, *)) {
-        base64Str = [data base64EncodedStringWithOptions:0];
-    } else {
-        NSLog(@"Feature not available on 10.8");
-        return NO;
-    }
+    NSString *base64Str = [data base64EncodedStringWithOptions:0];
     NSArray *launchArgs = @[
         @"-HFOpenData",
         base64Str,

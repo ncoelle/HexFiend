@@ -5,15 +5,12 @@
 //  Copyright 2009 ridiculous_fish. All rights reserved.
 //
 
+#import <HexFiend/HFFrameworkPrefix.h>
+
 @interface HFTextVisualStyleRun : NSObject
 
-#if TARGET_OS_IPHONE
-@property (nonatomic, copy) UIColor *foregroundColor;
-@property (nonatomic, copy) UIColor *backgroundColor;
-#else
-@property (nonatomic, copy) NSColor *foregroundColor;
-@property (nonatomic, copy) NSColor *backgroundColor;
-#endif
+@property (nonatomic, copy) HFColor *foregroundColor;
+@property (nonatomic, copy) HFColor *backgroundColor;
 @property (nonatomic) NSRange range;
 @property (nonatomic) BOOL shouldDraw;
 @property (nonatomic) CGFloat scale;

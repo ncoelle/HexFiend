@@ -10,10 +10,18 @@
 
 @class HFController;
 
+NS_ASSUME_NONNULL_BEGIN
+
 @interface HFBinaryTemplateController : NSViewController
+
+@property (readonly) BOOL hasTemplate;
 
 - (void)rerunTemplateWithController:(HFController *)controller;
 
 - (void)anchorTo:(NSUInteger)position;
 
+- (void)showInTemplateAt:(NSUInteger)position;
+
 @end
+
+NS_ASSUME_NONNULL_END

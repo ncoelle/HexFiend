@@ -5,19 +5,24 @@
 //  Copyright 2008 ridiculous_fish. All rights reserved.
 //
 
-#import <Cocoa/Cocoa.h>
+#import <HexFiend/HexFiend.h>
 
 @class ChooseStringEncodingWindowController;
+@class CLIController;
+@class DiffRangeWindowController;
 
 @interface AppDelegate : NSObject {
     IBOutlet NSMenuItem *extendForwardsItem, *extendBackwardsItem;
     IBOutlet NSMenuItem *fontMenuItem;
+    IBOutlet NSMenuItem *fontListPlaceholderMenuItem;
     IBOutlet NSMenuItem *processListMenuItem;
     IBOutlet NSMenu *bookmarksMenu;
     IBOutlet NSMenuItem *noBookmarksMenuItem;
     NSArray *bookmarksMenuItems;
     IBOutlet NSMenu *stringEncodingMenu;
     IBOutlet ChooseStringEncodingWindowController *chooseStringEncoding;
+    IBOutlet NSMenuItem *byteGroupingMenuItem;
+    IBOutlet CLIController *cliController; // unused, prevents leak
 }
 
 - (IBAction)diffFrontDocuments:(id)sender;
@@ -29,5 +34,7 @@
 - (IBAction)openPreferences:(id)sender;
 
 @property (readonly) HFStringEncoding *defaultStringEncoding;
+
+- (void)buildByteGroupingMenu;
 
 @end

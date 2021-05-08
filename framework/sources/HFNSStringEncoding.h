@@ -6,17 +6,15 @@
 //  Copyright © 2018 ridiculous_fish. All rights reserved.
 //
 
-#import "HFStringEncoding.h"
+#import <HexFiend/HFStringEncoding.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface HFNSStringEncoding : HFStringEncoding <NSCoding>
 
-- (instancetype)initWithEncoding:(NSStringEncoding)encoding;
+- (instancetype)initWithEncoding:(NSStringEncoding)encoding name:(NSString *)name identifier:(NSString *)identifier;
 
 @property NSStringEncoding encoding;
-
-+ (instancetype)ascii;
 
 @end
 

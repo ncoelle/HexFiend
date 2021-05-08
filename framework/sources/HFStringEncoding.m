@@ -6,6 +6,8 @@
 //  Copyright © 2018 ridiculous_fish. All rights reserved.
 //
 
+#import <HexFiend/HFFrameworkPrefix.h>
+#import <HexFiend/HFAssert.h>
 #import "HFStringEncoding.h"
 
 @implementation HFStringEncoding
@@ -30,6 +32,10 @@
 
 - (nullable instancetype)initWithCoder:(NSCoder * __unused)coder {
     @throw [NSException exceptionWithName:NSGenericException reason:@"Unimplemented" userInfo:nil];
+}
+
+- (NSComparisonResult)compare:(HFStringEncoding *)other {
+    return [self.name compare:other.name];
 }
 
 @end

@@ -7,7 +7,7 @@
 //
 
 #import <HexFiend/HFProgressTracker.h>
-#include <pthread.h>
+#import <HexFiend/HFAssert.h>
 
 @implementation HFProgressTracker
 
@@ -76,7 +76,10 @@
 - (void)requestCancel:(id)sender {
     USE(sender);
     cancelRequested = 1;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     OSMemoryBarrier();
+#pragma clang diagnostic pop
 }
 
 - (void)dealloc {
@@ -94,7 +97,7 @@
 
 - (void)noteFinished:(id)sender {
     if (delegate != nil) {   
-        if (! pthread_main_np()) { // [NSThread isMainThread] is not available on Tiger
+        if (!NSThread.isMainThread) {
             [self performSelectorOnMainThread:@selector(noteFinished:) withObject:sender waitUntilDone:NO];
         }
         else {

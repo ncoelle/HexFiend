@@ -1,3 +1,5 @@
+#include <Foundation/Foundation.h>
+
 /*! @brief HFRange is the 64 bit analog of NSRange, containing a 64 bit location and length. */
 typedef struct {
     unsigned long long location;
@@ -15,7 +17,16 @@ typedef struct {
 #if TARGET_OS_IPHONE
 #define HFColor UIColor
 #define HFView UIView
+#define HFFont UIFont
 #else
 #define HFColor NSColor
 #define HFView NSView
+#define HFFont NSFont
 #endif
+
+typedef NS_ENUM(NSInteger, HFControllerSelectAction) {
+    eSelectResult,
+    eSelectAfterResult,
+    ePreserveSelection,
+    NUM_SELECTION_ACTIONS
+};

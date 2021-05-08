@@ -6,7 +6,8 @@
 //
 
 #import "HFFullMemoryByteSlice.h"
-
+#import <HexFiend/HFFunctions.h>
+#import <HexFiend/HFAssert.h>
 
 @implementation HFFullMemoryByteSlice
 

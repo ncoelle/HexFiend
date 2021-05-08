@@ -12,6 +12,7 @@
 #import "FortunateSon.h"
 #import <ServiceManagement/ServiceManagement.h>
 #import <Security/Authorization.h>
+#import <HexFiend/HFAssert.h>
 
 #include "fileport.h"
 
@@ -24,26 +25,6 @@
     shared.disabled = YES;
 #endif
     return shared;
-}
-
-static NSString *read_line(FILE *file) {
-    NSMutableString *result = nil;
-    char buffer[256];
-    BOOL done = NO;
-    while (done == NO && fgets(buffer, sizeof buffer, file)) {
-        char *endPtr = strchr(buffer, '\n');
-        if (endPtr) {
-            *endPtr = '\0';
-            done = YES;
-        }
-        if (! result) {
-            result = [NSMutableString stringWithUTF8String:buffer];
-        }
-        else {
-            CFStringAppendCString((CFMutableStringRef)result, buffer, kCFStringEncodingUTF8);
-        }
-    }
-    return result;
 }
 
 - (BOOL)readBytes:(void *)bytes range:(HFRange)range process:(pid_t)process error:(NSError **)error {
@@ -168,7 +149,10 @@ static NSString *read_line(FILE *file) {
     
     /* Always remove the job if we've previously submitted it. This is to help with versioning (we always install the latest tool). It also avoids conflicts where the installed tool was signed with a different key (i.e. someone building Hex Fiend while also having run the signed distribution). A potentially negative consequence is that we have to authenticate every launch, but that is actually a benefit, because it serves as a sort of notification that user's action requires elevated privileges, instead of just (potentially silently) doing it. */
     BOOL helperIsAlreadyInstalled = NO;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     CFDictionaryRef existingJob = SMJobCopyDictionary(kSMDomainSystemLaunchd, label);
+#pragma clang diagnostic pop
     if (existingJob) {
         helperIsAlreadyInstalled = YES;
         CFRelease(existingJob);
@@ -196,7 +180,10 @@ static NSString *read_line(FILE *file) {
     /* Remove the existing helper. If this fails it's not a fatal error (SMJobBless can handle the case when a job is already installed). */
     if (! err && helperIsAlreadyInstalled) {
         CFErrorRef localError = NULL;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         SMJobRemove(kSMDomainSystemLaunchd, label, authRef, true /* wait */, &localError);
+#pragma clang diagnostic pop
         if (localError) {
             NSLog(@"SMJobRemove() failed with error %@", localError);
             CFRelease(localError);
@@ -215,7 +202,10 @@ static NSString *read_line(FILE *file) {
     /* Get the port for our helper as provided by launchd */
     NSMachPort *helperLaunchdPort = nil;
     if (! err) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         NSMachBootstrapServer *boots = [NSMachBootstrapServer sharedInstance];
+#pragma clang diagnostic pop
         helperLaunchdPort = (NSMachPort *)[boots portForName:portName];
         err = ! [helperLaunchdPort isValid];
     }

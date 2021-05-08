@@ -8,6 +8,8 @@
 #import <HexFiend/HFByteArrayEditScript.h>
 #import <HexFiend/HFByteArray.h>
 #import <HexFiend/HFProgressTracker.h>
+#import <HexFiend/HFFunctions.h>
+#import <HexFiend/HFAssert.h>
 #import "HFByteArray_Internal.h"
 #include <malloc/malloc.h>
 #include <libkern/OSAtomic.h>
@@ -257,6 +259,7 @@ LocalIndex_t match_backwards(const unsigned char * restrict a, const unsigned ch
 
 @implementation HFByteArrayEditScript
 
+#if ! NDEBUG
 static BOOL validate_instructions(const struct HFEditInstruction_t *insns, size_t insnCount) {
     struct HFEditInstruction_t prevInsn;
     for (size_t i=0; i < insnCount; i++) {
@@ -271,6 +274,7 @@ static BOOL validate_instructions(const struct HFEditInstruction_t *insns, size_
     }
     return YES;
 }
+#endif
 
 /* The entry point for appending a snake to the instruction list (that is, splitting instructions that contain the snake) */
 BYTEARRAY_RELEASE_INLINE
@@ -559,13 +563,6 @@ BOOL computeMiddleSnakeTraversal_OverlapCheck(HFByteArrayEditScript *self, const
 }
 
 BYTEARRAY_RELEASE_INLINE
-LocalIndex_t ull_to_index(unsigned long long x) {
-    LocalIndex_t result = (LocalIndex_t)x;
-    HFASSERT((unsigned long long)result == x);
-    return result;
-}
-
-BYTEARRAY_RELEASE_INLINE
 struct Snake_t computeActualMiddleSnake(HFByteArrayEditScript *self, struct TLCacheGroup_t * restrict cacheGroup, const unsigned char * restrict directABuff, const unsigned char * restrict directBBuff, LocalIndex_t aLen, LocalIndex_t bLen) {
     
     /* This function wants to "consume" progress equal to aLen * bLen. */
@@ -578,7 +575,7 @@ struct Snake_t computeActualMiddleSnake(HFByteArrayEditScript *self, struct TLCa
     
     /* Adding delta to k in the forwards direction gives you k in the backwards direction */
     const LocalIndex_t delta = bLen - aLen;
-    const BOOL oddDelta = (delta & 1); 
+    const BOOL oddDelta = (delta & 1) ? YES : NO; 
     
     LocalIndex_t *restrict forwardsVector = cacheGroup->forwardsArray.ptr;
     LocalIndex_t *restrict backwardsVector = cacheGroup->backwardsArray.ptr;
@@ -856,7 +853,7 @@ struct Snake_t computePrettyGoodMiddleSnake(HFByteArrayEditScript *self, struct 
     /* Progress reporting helper block */
     const unsigned long long * const offsetsPtr = offsets;
     unsigned long long (^ const progressHelper)(unsigned long long, unsigned long long) = ^(unsigned long long forwardsMatch, unsigned long long backwardsMatch) {
-        unsigned long long left, top, right, bottom, upperLeft, lowerRight, newProgressConsumed, result;
+        unsigned long long left, top, right, bottom, upperLeft, lowerRight, newProgressConsumed;
         left = offsetsPtr[SourceForwards] + forwardsMatch;
         top = offsetsPtr[DestForwards] + forwardsMatch;
         right = offsetsPtr[SourceBackwards] + backwardsMatch;
@@ -1109,7 +1106,10 @@ static inline unsigned long long change_progress(HFByteArrayEditScript *self, un
 static void computeLongestCommonSubsequence(HFByteArrayEditScript *self, struct TLCacheGroup_t *restrict cacheGroup, OSQueueHead * restrict cacheQueueHead, dispatch_group_t dispatchGroup, HFRange rangeInA, HFRange rangeInB, uint32_t recursionDepth) {
     if (recursionDepth >= MAX_RECURSION_DEPTH) {
         /* Oops! */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         OSAtomicIncrement32(&self->concurrentProcesses);
+#pragma clang diagnostic pop
         dispatch_group_async(dispatchGroup, dispatch_get_global_queue(0, 0), ^{
             /* We can't re-use cacheGroup because our caller may want to use it again.  So get a new group. */
             struct TLCacheGroup_t *newGroup = dequeueOrCreateCacheGroup(cacheQueueHead);
@@ -1119,7 +1119,10 @@ static void computeLongestCommonSubsequence(HFByteArrayEditScript *self, struct 
             
             /* Put the group on the queue (either back or fresh) so others can use it */
             OSAtomicEnqueue(cacheQueueHead, newGroup, offsetof(struct TLCacheGroup_t, next));
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
             OSAtomicDecrement32(&self->concurrentProcesses);
+#pragma clang diagnostic pop
         });
         return;
     }
@@ -1230,7 +1233,10 @@ static void computeLongestCommonSubsequence(HFByteArrayEditScript *self, struct 
     if ((asyncA && asyncB && self->concurrentProcesses < CONCURRENT_PROCESS_COUNT)) {
         
         /* Compute the suffix in the background */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         OSAtomicIncrement32(&self->concurrentProcesses);
+#pragma clang diagnostic pop
         dispatch_group_async(dispatchGroup, dispatch_get_global_queue(0, 0), ^{
             
             /* Attempt to dequeue a group. If we can't, we'll have to make one. */
@@ -1243,7 +1249,10 @@ static void computeLongestCommonSubsequence(HFByteArrayEditScript *self, struct 
             OSAtomicEnqueue(cacheQueueHead, newGroup, offsetof(struct TLCacheGroup_t, next));
             
             /* We're done */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
             OSAtomicDecrement32(&self->concurrentProcesses);
+#pragma clang diagnostic pop
         });
         
         /* Compute the prefix now. We don't return our group to the queue - our caller does that.  */

@@ -7,41 +7,19 @@
 
 #import <HexFiend/HFLineCountingRepresenter.h>
 #import <HexFiend/HFLineCountingView.h>
+#import <HexFiend/HFHexGlyphTable.h>
+#import <HexFiend/HFFunctions.h>
+#import <HexFiend/HFAssert.h>
 
 NSString *const HFLineCountingRepresenterMinimumViewWidthChanged = @"HFLineCountingRepresenterMinimumViewWidthChanged";
 NSString *const HFLineCountingRepresenterCycledLineNumberFormat = @"HFLineCountingRepresenterCycledLineNumberFormat";
 
 
-/* Returns the maximum advance in points for a hexadecimal digit for the given font (interpreted as a screen font) */
+/* Returns the maximum advance in points for a hexadecimal digit for the given font */
 static CGFloat maximumDigitAdvanceForFont(NSFont *font) {
     REQUIRE_NOT_NULL(font);
-    font = [font screenFont];
-    CGFloat maxDigitAdvance = 0;
-    NSTextStorage *storage = [[NSTextStorage alloc] init];
-    NSLayoutManager *manager = [[NSLayoutManager alloc] init];
-    [storage setFont:font];
-    [storage addLayoutManager:manager];
-    
-    NSSize advancements[16] = {};
-    NSGlyph glyphs[16];
-    
-    /* Generate a glyph for every hex digit */
-    for (NSUInteger i=0; i < 16; i++) {
-        char c = "0123456789ABCDEF"[i];
-        NSString *string = [[NSString alloc] initWithBytes:&c length:1 encoding:NSASCIIStringEncoding];
-        [storage replaceCharactersInRange:NSMakeRange(0, (i ? 1 : 0)) withString:string];
-        glyphs[i] = [manager glyphAtIndex:0 isValidIndex:NULL];
-        HFASSERT(glyphs[i] != NSNullGlyph);
-    }
-    
-    /* Get the advancements of each of those glyphs */
-    [font getAdvancements:advancements forGlyphs:glyphs count:sizeof glyphs / sizeof *glyphs];
-    
-    /* Find the widest digit */
-    for (NSUInteger i=0; i < sizeof glyphs / sizeof *glyphs; i++) {
-        maxDigitAdvance = HFMax(maxDigitAdvance, advancements[i].width);
-    }
-    return maxDigitAdvance;
+    HFHexGlyphTable *table = [[HFHexGlyphTable alloc] initWithFont:font];
+    return table.advancement;
 }
 
 @implementation HFLineCountingRepresenter
@@ -98,7 +76,7 @@ static CGFloat maximumDigitAdvanceForFont(NSFont *font) {
 }
 
 - (void)updateFontAndLineHeight {
-    HFLineCountingView *view = [self view];
+    HFLineCountingView *view = (HFLineCountingView *)[self view];
     HFController *controller = [self controller];
     NSFont *font = controller ? [controller font] : [NSFont fontWithName:HFDEFAULT_FONT size:HFDEFAULT_FONTSIZE];
     [view setFont:font];
@@ -107,11 +85,11 @@ static CGFloat maximumDigitAdvanceForFont(NSFont *font) {
 }
 
 - (void)updateLineNumberFormat {
-    [[self view] setLineNumberFormat:lineNumberFormat];
+    [(HFLineCountingView *)[self view] setLineNumberFormat:lineNumberFormat];
 }
 
 - (void)updateBytesPerLine {
-    [[self view] setBytesPerLine:[[self controller] bytesPerLine]];
+    [(HFLineCountingView *)[self view] setBytesPerLine:[[self controller] bytesPerLine]];
 }
 
 - (void)updateLineRangeToDraw {
@@ -120,7 +98,7 @@ static CGFloat maximumDigitAdvanceForFont(NSFont *font) {
     if (controller) {
         lineRange = [controller displayedLineRange];
     }
-    [[self view] setLineRangeToDraw:lineRange];
+    [(HFLineCountingView *)[self view] setLineRangeToDraw:lineRange];
 }
 
 - (CGFloat)preferredWidth {
@@ -141,10 +119,15 @@ static CGFloat maximumDigitAdvanceForFont(NSFont *font) {
         unsigned long long contentsLengthRoundedToLine = HFProductULL(lineCount, bytesPerLine);
         NSUInteger digitCount = [HFLineCountingView digitsRequiredToDisplayLineNumber:contentsLengthRoundedToLine inFormat:lineNumberFormat];
         NSUInteger digitWidth = MAX(minimumDigitCount, digitCount);
-        if (digitWidth != digitsToRepresentContentsLength) {
+        static BOOL firstTime = YES;
+        if (firstTime || digitWidth != digitsToRepresentContentsLength) {
             digitsToRepresentContentsLength = digitWidth;
             [self postMinimumViewWidthChangedNotification];
         }
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            firstTime = NO;
+        });
     }
 }
 

@@ -5,6 +5,8 @@
 //  Copyright 2008 ridiculous_fish. All rights reserved.
 //
 
+#import <Foundation/Foundation.h>
+
 NS_ASSUME_NONNULL_BEGIN
 
 /*! @class HFFileReference
@@ -50,7 +52,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)setLength:(unsigned long long)length error:(NSError **)error;
 
 /*! isEqual: returns whether two file references both reference the same file, as in have the same inode and device. */
-- (BOOL)isEqual:(id)val;
+- (BOOL)isEqual:(nullable id)val;
 
 @end
 

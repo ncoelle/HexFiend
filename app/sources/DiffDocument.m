@@ -278,8 +278,8 @@ static enum DiffOverlayViewRangeType_t rangeTypeForValue(CGFloat value) {
 - (BOOL)handleEvent:(NSEvent *)event {
     BOOL handled = NO;
     BOOL frInLeftView = [self firstResponderIsInView:leftTextView], frInRightView = [self firstResponderIsInView:rightTextView];
-    NSUInteger prohibitedFlags = (NSShiftKeyMask | NSControlKeyMask | NSAlternateKeyMask | NSCommandKeyMask);
-    if ([event type] == NSKeyDown && ! (prohibitedFlags & [event modifierFlags])) {
+    NSUInteger prohibitedFlags = (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
+    if ([event type] == NSEventTypeKeyDown && ! (prohibitedFlags & [event modifierFlags])) {
         if (frInLeftView || frInRightView) {
             /* Handle arrow keys */
             NSString *chars = [event characters];
@@ -295,7 +295,7 @@ static enum DiffOverlayViewRangeType_t rangeTypeForValue(CGFloat value) {
                 }
             }
         }
-    } else if ([event type] == NSScrollWheel) {
+    } else if ([event type] == NSEventTypeScrollWheel) {
         
         /* Redirect scroll wheel events to ourselves, except for those in the table (or, rather, its scroll view). If this scroll event comes very soon after the last one, then we consider it to be a momentum scroll event and direct it at the last target. */
         NSPoint location = [event locationInWindow];
@@ -307,7 +307,16 @@ static enum DiffOverlayViewRangeType_t rangeTypeForValue(CGFloat value) {
             handled = handledLastScrollEvent;
         } else {
             /* Don't handle it if it's in our scroll view */
-            handled = ! NSMouseInRect(location, [scrollView convertRect:[scrollView bounds] toView:nil], NO /* flipped */);
+            if (NSMouseInRect(location, [scrollView convertRect:[scrollView bounds] toView:nil], NO /* flipped */)) {
+                handled = NO;
+            } else {
+                NSView *layoutView = [layoutRepresenter view];
+                if (layoutView && NSMouseInRect(location, [layoutView convertRect:[layoutView bounds] toView:nil], NO)) {
+                    handled = NO;
+                } else {
+                    handled = YES;
+                }
+            }
         }
         
         /* Record info about our events */
@@ -742,10 +751,16 @@ static enum DiffOverlayViewRangeType_t rangeTypeForValue(CGFloat value) {
 }
 
 - (void)setFont:(NSFont *)font registeringUndo:(BOOL)undo {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     [[self window] disableFlushWindow];
+#pragma clang diagnostic pop
     [super setFont:font registeringUndo:undo];
     [[leftTextView controller] setFont:font];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     [[self window] enableFlushWindow];
+#pragma clang diagnostic pop
 }
 
 #pragma mark NSTableView methods
@@ -1025,7 +1040,7 @@ static const CGFloat kScrollMultiplier = (CGFloat)1.5;
 
 - (void)scrollWithScrollEvent:(NSEvent *)scrollEvent {
     HFASSERT(scrollEvent != NULL);
-    HFASSERT([scrollEvent type] == NSScrollWheel);
+    HFASSERT([scrollEvent type] == NSEventTypeScrollWheel);
     long double scrollY = 0;
     
     /* Prefer precise deltas */
@@ -1135,6 +1150,13 @@ static const CGFloat kScrollMultiplier = (CGFloat)1.5;
     resultSize.width = [textViewContainer convertSize:containerSize toView:nil].width + fixedWidth;
     resultSize.height = frameSize.height;
     return resultSize;
+}
+
+- (NSView *)bannerAssociateView
+{
+    NSView *view = [textViewContainer superview];
+    HFASSERT([view isKindOfClass:[NSSplitView class]]);
+    return view;
 }
 
 @end

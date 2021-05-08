@@ -32,7 +32,7 @@
     } else {
         [[NSColor colorWithCalibratedWhite:0.87 alpha:1] set];
     }
-    NSRectFillUsingOperation(clip, NSCompositeSourceOver);
+    NSRectFillUsingOperation(clip, NSCompositingOperationSourceOver);
     NSRect bounds = [self bounds];
     
     // Draw left and right shadow
@@ -90,6 +90,10 @@
 - (CGFloat)minimumViewWidthForBytesPerLine:(NSUInteger)bytesPerLine {
     USE(bytesPerLine);
     return DIVIDER_WIDTH;
+}
+
++ (NSPoint)defaultLayoutPosition {
+    return NSMakePoint(2, 0);
 }
 
 @end

@@ -9,6 +9,8 @@
 #import <HexFiend/HFByteSlice.h>
 #import <HexFiend/HFProgressTracker.h>
 #import <HexFiend/HFFileReference.h>
+#import <HexFiend/HFFunctions.h>
+#import <HexFiend/HFAssert.h>
 #import "HFByteSliceFileOperationQueueEntry.h"
 #include <malloc/malloc.h>
 

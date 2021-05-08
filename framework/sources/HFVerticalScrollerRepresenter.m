@@ -8,14 +8,15 @@
 /* Note that on Tiger, NSScroller did not support double in any meaningful way; [scroller doubleValue] always returns 0, and setDoubleValue: doesn't look like it works either. */
 
 #import <HexFiend/HFVerticalScrollerRepresenter.h>
-
+#import <HexFiend/HFFunctions.h>
+#import <HexFiend/HFAssert.h>
 
 @implementation HFVerticalScrollerRepresenter
 
 /* No special NSCoding support needed */
 
 - (NSView *)createView {
-    NSScroller *scroller = [[NSScroller alloc] initWithFrame:NSMakeRect(0, 0, [NSScroller scrollerWidthForControlSize:NSRegularControlSize scrollerStyle:NSScrollerStyleLegacy], 64)];
+    NSScroller *scroller = [[NSScroller alloc] initWithFrame:NSMakeRect(0, 0, [NSScroller scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScrollerStyleLegacy], 64)];
     [scroller setTarget:self];
     [scroller setContinuous:YES];
     [scroller setEnabled:YES];
@@ -56,7 +57,7 @@
     
     HFController *controller = [self controller];
     HFASSERT(controller != NULL);
-    HFFPRange displayedRange = [[self controller] displayedLineRange];
+    HFFPRange displayedRange = [controller displayedLineRange];
     if (linesInt < 0) {
         displayedRange.location -= MIN(lines, displayedRange.location);
     }
@@ -82,7 +83,7 @@
 - (void)updateScrollerValue {
     HFController *controller = [self controller];
     CGFloat value, proportion;
-    NSScroller *scroller = [self view];
+    NSScroller *scroller = (NSScroller *)[self view];
     BOOL enable = YES;
     if (controller == nil) {
         value = 0;
@@ -120,7 +121,7 @@
 
 - (CGFloat)minimumViewWidthForBytesPerLine:(NSUInteger)bytesPerLine {
     USE(bytesPerLine);
-    return [NSScroller scrollerWidthForControlSize:[[self view] controlSize] scrollerStyle:NSScrollerStyleLegacy];
+    return [NSScroller scrollerWidthForControlSize:[(NSControl *)[self view] controlSize] scrollerStyle:NSScrollerStyleLegacy];
 }
 
 - (void)controllerDidChange:(HFControllerPropertyBits)bits {
@@ -128,7 +129,7 @@
 }
 
 + (NSPoint)defaultLayoutPosition {
-    return NSMakePoint(2, 0);
+    return NSMakePoint(4, 0);
 }
 
 @end

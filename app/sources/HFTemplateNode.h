@@ -6,15 +6,17 @@
 //  Copyright © 2018 ridiculous_fish. All rights reserved.
 //
 
-#import <Foundation/Foundation.h>
+#import <HexFiend/HexFiend.h>
+
+NS_ASSUME_NONNULL_BEGIN
 
 @interface HFTemplateNode : NSObject
 
 - (instancetype)initWithLabel:(NSString *)label value:(NSString *)value;
-- (instancetype)initGroupWithLabel:(NSString *)label parent:(HFTemplateNode *)parent;
+- (instancetype)initGroupWithLabel:(NSString *_Nullable)label parent:(HFTemplateNode *_Nullable)parent;
 
 @property (readonly) NSString *label;
-@property (readonly) NSString *value;
+@property (copy) NSString *value;
 @property (readonly) BOOL isGroup;
 @property (readonly, weak) HFTemplateNode *parent;
 
@@ -24,3 +26,4 @@
 
 @end
 
+NS_ASSUME_NONNULL_END

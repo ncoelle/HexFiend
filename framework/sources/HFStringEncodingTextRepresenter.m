@@ -9,7 +9,8 @@
 #import <HexFiend/HFRepresenterStringEncodingTextView.h>
 #import <HexFiend/HFPasteboardOwner.h>
 #import <HexFiend/HFProgressTracker.h>
-#import <HexFiend/HFNSStringEncoding.h>
+#import <HexFiend/HFEncodingManager.h>
+#import <HexFiend/HFFunctions.h>
 
 @interface HFStringEncodingPasteboardOwner : HFPasteboardOwner
 @property HFStringEncoding* encoding;
@@ -56,7 +57,7 @@
 
 - (instancetype)init {
     self = [super init];
-    stringEncoding = [HFNSStringEncoding ascii];
+    stringEncoding = [HFEncodingManager shared].ascii;
     return self;
 }
 
@@ -123,7 +124,7 @@
 }
 
 + (NSPoint)defaultLayoutPosition {
-    return NSMakePoint(1, 0);
+    return NSMakePoint(3, 0);
 }
 
 - (void)copySelectedBytesToPasteboard:(NSPasteboard *)pb {

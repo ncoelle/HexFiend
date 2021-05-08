@@ -7,6 +7,7 @@
 
 #import "HFRepresenterTextViewCallout.h"
 #import "HFRepresenterTextView.h"
+#import <HexFiend/HFAssert.h>
 #import <CoreText/CoreText.h>
 
 static const CGFloat HFTeardropRadius = 12;
@@ -109,14 +110,9 @@ static inline double normalizeAngle(double x) {
 }
 
 static inline double distanceCCW(double a, double b) { return normalizeAngle(b-a); }
-static inline double distanceCW(double a, double b) { return normalizeAngle(a-b); }
 
 static inline double wedgeMax(Wedge_t wedge) {
     return normalizeAngle(wedge.offset + wedge.length);
-}
-
-static NSString *wedgeDescription(Wedge_t wedge) {
-    return [NSString stringWithFormat:@"{%f, %f}", wedge.offset, wedge.length];
 }
 
 /* Computes the smallest wedge containing the two given wedges. Compute the wedge from the min of one to the furthest part of the other, and pick the smaller. */
@@ -221,9 +217,6 @@ static double distanceMod1(double a, double b) {
         /* Get the character origin */
         const CGPoint characterOrigin = [textView originForCharacterAtByteIndex:byteLoc];
         
-        /* This is how far it is to the center of our teardrop */
-        const double teardropLength = HFTeardropRadius * HFTeadropTipScale;
-
         Wedge_t forbiddenAngle = {0, 0};
         
         // Compute how far we are from the top (or bottom)

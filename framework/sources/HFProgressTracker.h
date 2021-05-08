@@ -6,6 +6,8 @@
 //  Copyright 2008 ridiculous_fish. All rights reserved.
 //
 
+#import <HexFiend/HFFrameworkPrefix.h>
+
 NS_ASSUME_NONNULL_BEGIN
 
 /*!
@@ -80,7 +82,7 @@ NS_ASSUME_NONNULL_BEGIN
 /*!
   Set and get the delegate, which may implement the optional methods below.
 */
-@property (nullable, nonatomic, assign) id delegate;
+@property (nullable, nonatomic, weak) id delegate;
 
 @end
 

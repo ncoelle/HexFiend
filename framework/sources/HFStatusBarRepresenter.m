@@ -7,6 +7,7 @@
 
 #import <HexFiend/HFStatusBarRepresenter.h>
 #import <HexFiend/HFFunctions.h>
+#import <HexFiend/HFAssert.h>
 
 #define kHFStatusBarDefaultModeUserDefaultsKey @"HFStatusBarDefaultMode"
 
@@ -58,12 +59,8 @@
     _statusView.selectable = NO;
     _statusView.bordered = NO;
     _statusView.bezeled = NO;
-    _statusView.alignment = NSCenterTextAlignment;
-    NSColor *foregroundColor = [NSColor colorWithCalibratedWhite:(CGFloat).15 alpha:1];
-    if (@available(macOS 10.10, *)) {
-        foregroundColor = [NSColor secondaryLabelColor];
-    }
-    _statusView.textColor = foregroundColor;
+    _statusView.alignment = NSTextAlignmentCenter;
+    _statusView.textColor = NSColor.secondaryLabelColor;
     _statusView.font = [NSFont labelFontOfSize:10];
     _statusView.rep = self;
     _statusView.autoresizingMask = NSViewWidthSizable;

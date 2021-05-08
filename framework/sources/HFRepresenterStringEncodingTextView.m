@@ -7,29 +7,14 @@
 
 #import "HFRepresenterStringEncodingTextView.h"
 #import "HFTextRepresenter_Internal.h"
-#import <HexFiend/HFNSStringEncoding.h>
-#include <malloc/malloc.h>
+#import <HexFiend/HFEncodingManager.h>
 #import <CoreText/CoreText.h>
 
 static NSString *copy1CharStringForByteValue(unsigned long long byteValue, NSUInteger bytesPerChar, HFStringEncoding *encoding) {
     NSString *result = nil;
     unsigned char bytes[sizeof byteValue];
     /* If we are little endian, then the bytesPerChar doesn't matter, because it will all come out the same.  If we are big endian, then it does matter. */
-#if ! __BIG_ENDIAN__
     *(unsigned long long *)bytes = byteValue;
-#else
-    if (bytesPerChar == sizeof(uint8_t)) {
-        *(uint8_t *)bytes = (uint8_t)byteValue;
-    } else if (bytesPerChar == sizeof(uint16_t)) {
-        *(uint16_t *)bytes = (uint16_t)byteValue;
-    } else if (bytesPerChar == sizeof(uint32_t)) {
-        *(uint32_t *)bytes = (uint32_t)byteValue;
-    } else if (bytesPerChar == sizeof(uint64_t)) {
-        *(uint64_t *)bytes = (uint64_t)byteValue;
-    } else {
-        [NSException raise:NSInvalidArgumentException format:@"Unsupported bytesPerChar of %u", bytesPerChar];
-    }
-#endif
 
     /* ASCII is mishandled :( */
     BOOL encodingOK = YES;
@@ -37,8 +22,6 @@ static NSString *copy1CharStringForByteValue(unsigned long long byteValue, NSUIn
         encodingOK = NO;
     }
 
-    
-    
     /* Now create a string from these bytes */
     if (encodingOK) {
         result = [encoding stringFromBytes:bytes length:bytesPerChar];
@@ -178,17 +161,6 @@ static void generateGlyphs(CTFontRef baseFont, NSMutableArray *fonts, struct HFG
     }
 }
 
-static int compareGlyphFontIndexes(const void *p1, const void *p2) {
-    const struct HFGlyph_t *g1 = p1, *g2 = p2;
-    if (g1->fontIndex != g2->fontIndex) {
-        /* Prefer to sort by font index */
-        return (g1->fontIndex > g2->fontIndex) - (g2->fontIndex > g1->fontIndex);
-    } else {	
-        /* If they have equal font indexes, sort by glyph value */
-        return (g1->glyph > g2->glyph) - (g2->glyph > g1->glyph);
-    }
-}
-
 @implementation HFRepresenterStringEncodingTextView
 {
     HFStringEncoding *encoding;
@@ -201,12 +173,13 @@ static int compareGlyphFontIndexes(const void *p1, const void *p2) {
     /* Do some things under the lock. Someone else may wish to read fonts, and we're going to write to it, so make a local copy.  Also figure out what characters to load. */
     NSMutableArray *localFonts;
     NSIndexSet *charactersToLoad;
-    OSSpinLockLock(&glyphLoadLock);
+    HFASSERT(glyphLoadLock != nil);
+    [glyphLoadLock lock];
     localFonts = [fonts mutableCopy];
     charactersToLoad = requestedCharacters;
     /* Set requestedCharacters to nil so that the caller knows we aren't going to check again, and will have to re-invoke us. */
     requestedCharacters = nil;
-    OSSpinLockUnlock(&glyphLoadLock);
+    [glyphLoadLock unlock];
     
     NSUInteger charVal, glyphIdx, charCount = [charactersToLoad count];
     NEW_ARRAY(struct HFGlyph_t, glyphs, charCount);
@@ -218,9 +191,10 @@ static int compareGlyphFontIndexes(const void *p1, const void *p2) {
     FREE_ARRAY(characters);
     
     /* Replace fonts.  Do this before we insert into the glyph trie, because the glyph trie references fonts that we're just now putting in the fonts array. */
-    OSSpinLockLock(&glyphLoadLock);
+    HFASSERT(glyphLoadLock != nil);
+    [glyphLoadLock lock];
     fonts = localFonts;
-    OSSpinLockUnlock(&glyphLoadLock);
+    [glyphLoadLock unlock];
     
     /* Now insert all of the glyphs into the glyph trie */
     glyphIdx = 0;
@@ -253,7 +227,8 @@ static int compareGlyphFontIndexes(const void *p1, const void *p2) {
     }
     
     BOOL needToStartOperation;    
-    OSSpinLockLock(&glyphLoadLock);
+    HFASSERT(glyphLoadLock != nil);
+    [glyphLoadLock lock];
     if (requestedCharacters) {
         /* There's a pending request, so just add to it */
         [requestedCharacters addIndexes:charactersToLoad];
@@ -263,7 +238,7 @@ static int compareGlyphFontIndexes(const void *p1, const void *p2) {
         requestedCharacters = [charactersToLoad mutableCopy];
         needToStartOperation = YES;
     }
-    OSSpinLockUnlock(&glyphLoadLock);
+    [glyphLoadLock unlock];
     
     if (needToStartOperation) {
         NSInvocationOperation *op = [[NSInvocationOperation alloc] initWithTarget:self selector:@selector(threadedLoadGlyphs:) object:charactersToLoad];
@@ -278,20 +253,14 @@ static int compareGlyphFontIndexes(const void *p1, const void *p2) {
 - (void)staleTieredProperties {
     tier1DataIsStale = YES;
     /* We have to free the glyph table */
-    requestedCancel = YES;
     [glyphLoader waitUntilAllOperationsAreFinished];
-    requestedCancel = NO;
     HFGlyphTreeFree(&glyphTable);
     HFGlyphTrieInitialize(&glyphTable, bytesPerChar);
     fonts = nil;
     fontCache = nil;
 }
 
-#if TARGET_OS_IPHONE
-- (void)setFont:(UIFont *)font
-#else
-- (void)setFont:(NSFont *)font
-#endif
+- (void)setFont:(HFFont *)font
 {
     [self staleTieredProperties];
     /* fonts is preloaded with our one font */
@@ -300,19 +269,31 @@ static int compareGlyphFontIndexes(const void *p1, const void *p2) {
     [super setFont:font];
 }
 
+- (instancetype)initWithRepresenter:(HFTextRepresenter *)rep
+{
+    self = [super initWithRepresenter:rep];
+    encoding = [HFEncodingManager shared].ascii;
+    bytesPerChar = encoding.fixedBytesPerCharacter;
+    glyphLoadLock = [[NSLock alloc] init];
+    [self staleTieredProperties];
+    return self;
+}
+
 - (instancetype)initWithCoder:(NSCoder *)coder {
     HFASSERT([coder allowsKeyedCoding]);
     self = [super initWithCoder:coder];
     encoding = [coder decodeObjectForKey:@"HFStringEncoding"];
     bytesPerChar = encoding.fixedBytesPerCharacter;
+    glyphLoadLock = [[NSLock alloc] init];
     [self staleTieredProperties];
     return self;
 }
 
 - (instancetype)initWithFrame:(CGRect)frameRect {
     self = [super initWithFrame:frameRect];
-    encoding = [HFNSStringEncoding ascii];
+    encoding = [HFEncodingManager shared].ascii;
     bytesPerChar = encoding.fixedBytesPerCharacter;
+    glyphLoadLock = [[NSLock alloc] init];
     [self staleTieredProperties];
     return self;
 }
@@ -381,20 +362,17 @@ static int compareGlyphFontIndexes(const void *p1, const void *p2) {
 }
 
 /* Override of base class method for font substitution */
-#if TARGET_OS_IPHONE
-- (UIFont *)fontAtSubstitutionIndex:(uint16_t)idx
-#else
-- (NSFont *)fontAtSubstitutionIndex:(uint16_t)idx
-#endif
+- (HFFont *)fontAtSubstitutionIndex:(uint16_t)idx
 {
     HFASSERT(idx != kHFGlyphFontIndexInvalid);
     if (idx >= [fontCache count]) {
         /* Our font cache is out of date.  Take the lock and update the cache. */
         NSArray *newFonts = nil;
-        OSSpinLockLock(&glyphLoadLock);
+        HFASSERT(glyphLoadLock != nil);
+        [glyphLoadLock lock];
         HFASSERT(idx < [fonts count]);
         newFonts = [fonts copy];
-        OSSpinLockUnlock(&glyphLoadLock);
+        [glyphLoadLock unlock];
         
         /* Store the new cache */
         fontCache = newFonts;
@@ -480,7 +458,7 @@ static int compareGlyphFontIndexes(const void *p1, const void *p2) {
     HFTextRepresenter *rep = [self representer];
     HFASSERT([rep isKindOfClass:[HFTextRepresenter class]]);
 #if !TARGET_OS_IPHONE
-    [rep copySelectedBytesToPasteboard:[NSPasteboard generalPasteboard] encoding:[HFNSStringEncoding ascii]];
+    [rep copySelectedBytesToPasteboard:[NSPasteboard generalPasteboard] encoding:[HFEncodingManager shared].ascii];
 #endif
 }
 

@@ -67,6 +67,9 @@
 }
 
 - (void)awakeFromNib {
+    self.outlineView.doubleAction = @selector(outlineViewDoubleAction:);
+    self.outlineView.target = self;
+    
     [self loadTemplates:self];
 
     [[NSUserDefaults standardUserDefaults] addObserver:self
@@ -77,6 +80,33 @@
 
 - (void)dealloc {
     [[NSUserDefaults standardUserDefaults] removeObserver:self forKeyPath:@"BinaryTemplateSelectionColor" context:NULL];
+}
+
+- (void)viewDidAppear {
+    [super viewDidAppear];
+
+    [self showPopoverOnce];
+}
+
+- (void)showPopoverOnce {
+    NSString *key = @"BinaryTemplatesDisplayedWelcomePopover1";
+    NSUserDefaults *userDefaults = NSUserDefaults.standardUserDefaults;
+    id obj = [userDefaults objectForKey:key];
+    if (!obj || ![obj isKindOfClass:[NSNumber class]] || ![obj boolValue]) {
+        const NSTimeInterval popoverDelay = 0.25; // give the UI time to show
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(popoverDelay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self showPopover];
+        });
+        [userDefaults setBool:YES forKey:key];
+    }
+}
+
+- (void)showPopover {
+    NSViewController *viewController = [[NSViewController alloc] initWithNibName:@"BinaryTemplatePopover" bundle:nil];
+    NSPopover *popover = [[NSPopover alloc] init];
+    popover.contentViewController = viewController;
+    popover.behavior = NSPopoverBehaviorSemitransient;
+    [popover showRelativeToRect:self.templatesPopUp.frame ofView:self.view preferredEdge:NSRectEdgeMinY];
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> * __unused)change context:(void * __unused)context {
@@ -104,6 +134,10 @@
     }
 }
 
+- (void)reselectLastTemplate {
+    [self.templatesPopUp selectItemWithTitle:self.titleOfLastTemplate];
+}
+
 - (void)openTemplatesFolder:(id __unused)sender {
     NSString *dir = self.templatesFolder;
     NSError *error = nil;
@@ -115,12 +149,17 @@
         alert.messageText = NSLocalizedString(@"Failed to open folder.", nil);
         [alert runModal];
     }
-    [self.templatesPopUp selectItemWithTitle:self.titleOfLastTemplate];
+    [self reselectLastTemplate];
 }
 
 - (void)refresh:(id __unused)sender {
     [self loadTemplates:sender];
     [self rerunTemplate];
+}
+
+- (void)showPopover:(id)sender {
+    [self showPopover];
+    [self reselectLastTemplate];
 }
 
 - (void)loadTemplates:(id __unused)sender {
@@ -155,12 +194,19 @@
         }
         [self.templatesPopUp.menu addItem:[NSMenuItem separatorItem]];
     }
+
     NSMenuItem *refreshItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Refresh", nil) action:@selector(refresh:) keyEquivalent:@""];
     refreshItem.target = self;
     [self.templatesPopUp.menu addItem:refreshItem];
+
     NSMenuItem *openFolderItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Open Templates Folder", nil) action:@selector(openTemplatesFolder:) keyEquivalent:@""];
     openFolderItem.target = self;
     [self.templatesPopUp.menu addItem:openFolderItem];
+
+    NSMenuItem *showPopoverItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Show Welcome", nil) action:@selector(showPopover:) keyEquivalent:@""];
+    showPopoverItem.target = self;
+    [self.templatesPopUp.menu addItem:showPopoverItem];
+
     [self.templatesPopUp selectItem:itemToSelect];
     self.templates = templates;
     [self saveTitleOfLastTemplate:itemToSelect.title];
@@ -195,7 +241,19 @@
     NSString *errorMessage = nil;
     HFTclTemplateController *templateController = [[HFTclTemplateController alloc] init];
     templateController.anchor = self.anchorPosition;
+    
+    // Change directory to the templates folder so "source" command can use relative paths
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *currentDir = fm.currentDirectoryPath;
+    if (![fm changeCurrentDirectoryPath:self.templatesFolder]) {
+        NSLog(@"Failed to change directory to %@", self.templatesFolder);
+    }
+    
     HFTemplateNode *node = [templateController evaluateScript:self.selectedFile.path forController:controller error:&errorMessage];
+    
+    // Restore current directory
+    (void)[fm changeCurrentDirectoryPath:currentDir];
+    
     [self setRootNode:node error:errorMessage];
     [self updateSelectionColorRange];
 }
@@ -227,6 +285,17 @@
     return nil;
 }
 
+- (void)collapseValuedGroups {
+    NSOutlineView *outlineView = self.outlineView;
+    NSInteger numberOfRows = outlineView.numberOfRows;
+    for (NSInteger i = numberOfRows - 1; i >=0; --i) {
+        HFTemplateNode *node = [outlineView itemAtRow:i];
+        if (node.isGroup && node.value) {
+            [outlineView collapseItem:node];
+        }
+    }
+}
+
 - (void)setRootNode:(HFTemplateNode *)node error:(NSString *)error {
     if (error != nil) {
         self.node = nil;
@@ -237,6 +306,10 @@
         self.errorTextField.hidden = YES;
     }
     [self.outlineView reloadData];
+    [self.outlineView expandItem:nil expandChildren:YES];
+    if ([NSUserDefaults.standardUserDefaults boolForKey:@"BinaryTemplatesAutoCollapseValuedGroups"]) {
+        [self collapseValuedGroups];
+    }
 }
 
 - (NSColor *)selectionColor {
@@ -280,12 +353,18 @@
     [self updateSelectionColorRange];
     
     if (self.outlineView.numberOfSelectedRows == 1) {
-        NSUserDefaults *uds = [NSUserDefaults standardUserDefaults];
-        if ([uds boolForKey:@"BinaryTemplatesOnSelectionJump"]) {
-            [self jumpToField:nil];
-        }
-        if ([uds boolForKey:@"BinaryTemplatesOnSelectionSelect"]) {
-            [self selectBytes:nil];
+        NSInteger action = [[NSUserDefaults standardUserDefaults] integerForKey:@"BinaryTemplatesSingleClickAction"];
+        switch (action) {
+            case 0: // do nothing
+                break;
+            case 1: // scroll to offset
+                [self jumpToField:nil];
+                break;
+            case 2: // select bytes
+                [self selectBytes:nil];
+                break;
+            default:
+                NSLog(@"Unknown single click action %ld", action);
         }
     }
 }
@@ -299,7 +378,7 @@
     id obj = row != -1 ? [sender itemAtRow:row] : nil;
     NSMenuItem *item;
 
-    item = [menu addItemWithTitle:NSLocalizedString(@"Jump to Field", nil) action:@selector(jumpToField:) keyEquivalent:@""];
+    item = [menu addItemWithTitle:NSLocalizedString(@"Scroll to Offset", nil) action:@selector(jumpToField:) keyEquivalent:@""];
     item.target = self;
     item.enabled = obj != nil;
     
@@ -314,6 +393,26 @@
     return menu;
 }
 
+- (void)outlineViewDoubleAction:(id)sender {
+    HFASSERT(sender == self.outlineView);
+    NSInteger row = self.outlineView.clickedRow;
+    if (row != -1) {
+        NSInteger action = [[NSUserDefaults standardUserDefaults] integerForKey:@"BinaryTemplatesDoubleClickAction"];
+        switch (action) {
+            case 0: // do nothing
+                break;
+            case 1: // scroll to offset
+                [self jumpToField:sender];
+                break;
+            case 2: // select bytes
+                [self selectBytes:sender];
+                break;
+            default:
+                NSLog(@"Unknown double click action %ld", action);
+        }
+    }
+}
+
 - (void)jumpToField:(id __unused)sender {
     HFTemplateNode *node = [self.outlineView itemAtRow:[self.outlineView selectedRow]];
     HFRange range = HFRangeMake(node.range.location, 0);
@@ -326,6 +425,36 @@
     [self rerunTemplate];
 }
 
+- (HFTemplateNode *)findAndExpandDeepestNodeForPosition:(NSUInteger)position startAt:(HFTemplateNode *)node {
+    if (node.children == nil) {
+        return node;
+    }
+    
+    for (HFTemplateNode *childNode in node.children) {
+        if (HFLocationInRange(position, childNode.range)) {
+            [self.outlineView expandItem:childNode];
+            return [self findAndExpandDeepestNodeForPosition:position startAt:childNode];
+        }
+    }
+    
+    return node;
+}
+
+- (void)showInTemplateAt:(NSUInteger)position {
+    if (self.node == nil) {
+        return;
+    }
+    
+    HFTemplateNode *deepest = [self findAndExpandDeepestNodeForPosition:position startAt:self.node];
+    NSInteger itemIndex = [self.outlineView rowForItem:deepest];
+    if (itemIndex < 0) {
+        return;
+    }
+    
+    [self.outlineView selectRowIndexes:[NSIndexSet indexSetWithIndex:itemIndex] byExtendingSelection:NO];
+    [self.outlineView scrollRowToVisible:itemIndex];
+}
+
 - (void)copyValue:(id __unused)sender {
     HFTemplateNode *node = [self.outlineView itemAtRow:[self.outlineView selectedRow]];
     NSPasteboard *pboard = [NSPasteboard generalPasteboard];
@@ -336,6 +465,17 @@
 - (void)selectBytes:(id __unused)sender {
     HFTemplateNode *node = [self.outlineView itemAtRow:[self.outlineView selectedRow]];
     [self.controller setSelectedContentsRanges:@[[HFRangeWrapper withRange:node.range]]];
+}
+
+- (void)copy:(id)sender {
+    // NSResponder chain from Edit > Copy
+    if (self.outlineView.numberOfSelectedRows > 0) {
+        [self copyValue:sender];
+    }
+}
+
+- (BOOL)hasTemplate {
+    return self.node != nil;
 }
 
 @end

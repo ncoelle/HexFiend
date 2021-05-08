@@ -7,6 +7,12 @@
 
 #import "HFByteArray_Internal.h"
 #import <HexFiend/HFProgressTracker.h>
+#import <HexFiend/HFFunctions.h>
+#import <HexFiend/HFFastMemchr.h>
+#import <HexFiend/HFAssert.h>
+
+//How many bytes should we read at a time when doing a find/replace?
+#define SEARCH_CHUNK_SIZE 32768
 
 unsigned char* boyer_moore_helper(const unsigned char * restrict haystack, const unsigned char * restrict needle, unsigned long haystack_length, unsigned long needle_length, const unsigned long * restrict char_jump, const unsigned long * restrict match_jump) {
     unsigned long ua, ub;

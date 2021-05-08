@@ -6,6 +6,7 @@
 //
 
 #import <HexFiend/HFByteSlice.h>
+#import <HexFiend/HFFunctions.h>
 
 
 @implementation HFByteSlice

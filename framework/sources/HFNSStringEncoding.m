@@ -10,10 +10,16 @@
 #import <HexFiend/HFFunctions.h>
 
 @implementation HFNSStringEncoding
+{
+    NSString *_name;
+    NSString *_identifier;
+}
 
-- (instancetype)initWithEncoding:(NSStringEncoding)encoding {
+- (instancetype)initWithEncoding:(NSStringEncoding)encoding name:(NSString *)name identifier:(NSString *)identifier {
     self = [super init];
     _encoding = encoding;
+    _name = name;
+    _identifier = identifier;
     return self;
 }
 
@@ -44,11 +50,11 @@
 }
 
 - (NSString *)name {
-    return [NSString localizedNameOfStringEncoding:self.encoding];
+    return _name;
 }
 
-+ (instancetype)ascii {
-    return [[self alloc] initWithEncoding:NSASCIIStringEncoding];
+- (NSString *)identifier {
+    return _identifier;
 }
 
 - (BOOL)isEqual:(id)object {

@@ -13,11 +13,14 @@ NS_ASSUME_NONNULL_BEGIN
 @interface HFStringEncoding : NSObject <NSCoding>
 
 @property (readonly) NSString *name;
+@property (readonly) NSString *identifier;
 @property (readonly) uint8_t fixedBytesPerCharacter;
 @property (readonly) BOOL isASCII;
 
 - (NSString *)stringFromBytes:(const unsigned char *)bytes length:(NSUInteger)length;
 - (nullable NSData *)dataFromString:(NSString *)string;
+
+- (NSComparisonResult)compare:(HFStringEncoding *)other;
 
 @end
 

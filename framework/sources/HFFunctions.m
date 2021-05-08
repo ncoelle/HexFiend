@@ -1,6 +1,5 @@
 #import <HexFiend/HFFunctions.h>
-
-#import "HFFunctions_Private.h"
+#import <HexFiend/HFAssert.h>
 
 @implementation HFRangeWrapper
 
@@ -727,7 +726,7 @@ NSData *HFDataFromHexString(NSString *string, BOOL* isMissingLastNybble) {
         }
     }
     
-    if (isMissingLastNybble) *isMissingLastNybble = (numNybbles % 2);
+    if (isMissingLastNybble) *isMissingLastNybble = (numNybbles % 2) ? YES : NO;
     
     //final nibble
     if (numNybbles % 2) {
@@ -738,7 +737,7 @@ NSData *HFDataFromHexString(NSString *string, BOOL* isMissingLastNybble) {
     return result;    
 }
 
-NSString *HFHexStringFromData(NSData *data) {
+NSString *HFHexStringFromData(NSData *data, BOOL includePrefix) {
     REQUIRE_NOT_NULL(data);
     NSUInteger dataLength = [data length];
     NSUInteger stringLength = HFProductInt(dataLength, 2);
@@ -750,15 +749,11 @@ NSString *HFHexStringFromData(NSData *data) {
         charBuffer[charIndex++] = hex2char(byte >> 4);
         charBuffer[charIndex++] = hex2char(byte & 0xF);
     }
-    return [[NSString alloc] initWithBytesNoCopy:charBuffer length:stringLength encoding:NSASCIIStringEncoding freeWhenDone:YES];
-}
-
-void HFSetFDShouldCache(int fd, BOOL shouldCache) {
-    int result = fcntl(fd, F_NOCACHE, !shouldCache);
-    if (result == -1) {
-        int err = errno;
-        NSLog(@"fcntl(%d, F_NOCACHE, %d) returned error %d: %s", fd, !shouldCache, err, strerror(err));
+    NSString *hex = [[NSString alloc] initWithBytesNoCopy:charBuffer length:stringLength encoding:NSASCIIStringEncoding freeWhenDone:YES];
+    if (includePrefix) {
+        return [@"0x" stringByAppendingString:hex];
     }
+    return hex;
 }
 
 NSString *HFDescribeByteCount(unsigned long long count) {
@@ -888,13 +883,13 @@ NSString *HFDescribeByteCountWithPrefixAndSuffix(const char *stringPrefix, unsig
     return [[NSString alloc] initWithBytesNoCopy:resultPointer length:numChars encoding:NSASCIIStringEncoding freeWhenDone:YES];
 }
 
+#if !TARGET_OS_IPHONE
 static CGFloat interpolateShadow(CGFloat val) {
     //A value of 1 means we are at the rightmost, and should return our max value.  By adjusting the scale, we control how quickly the shadow drops off.
     CGFloat scale = 1.4;
     return (CGFloat)(expm1(val * scale) / expm1(scale));
 }
 
-#if !TARGET_OS_IPHONE
 void HFDrawShadow(CGContextRef ctx, NSRect rect, CGFloat shadowSize, NSRectEdge rectEdge, BOOL drawActive, NSRect clip) {
     NSRect remainingRect, unused;
     NSDivideRect(rect, &remainingRect, &unused, shadowSize, rectEdge);
@@ -947,16 +942,11 @@ BOOL HFDarkModeEnabled(void) {
 #if TARGET_OS_IPHONE
     return NO;
 #else
-#if defined(MAC_OS_X_VERSION_10_4) && MAC_OS_X_VERSION_10_4 > 0 && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_4
     if (@available(macOS 10.14, *)) {
         if ([NSAppearance.currentAppearance.name isEqualToString:NSAppearanceNameDarkAqua]) {
             return YES;
         }
     }
-#else
-// Dark Mode requires compiling against 10.14+ SDK
-#warning Compiling without Dark Mode support.
-#endif
     return NO;
 #endif
 }
@@ -966,18 +956,7 @@ CGContextRef HFGraphicsGetCurrentContext(void) {
 #if TARGET_OS_IPHONE
     ctx = UIGraphicsGetCurrentContext();
 #else
-#if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_10
-    if (@available(macOS 10.10, *)) {
-        ctx = [NSGraphicsContext currentContext].CGContext;
-    } else {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        ctx = [NSGraphicsContext currentContext].graphicsPort;
-#pragma clang diagnostic pop
-    }
-#else
     ctx = [NSGraphicsContext currentContext].CGContext;
-#endif
 #endif
     return ctx;
 }

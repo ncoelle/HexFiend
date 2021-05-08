@@ -14,7 +14,7 @@
 #import "AppUtilities.h"
 #import "AppDelegate.h"
 #import <HexFiend/HexFiend.h>
-#include <pthread.h>
+#import "HFPrompt.h"
 
 static const char *const kProgressContext = "context";
 
@@ -61,6 +61,14 @@ static inline Class preferredByteArrayClass(void) {
 @end
 
 @implementation BaseDataDocument
+{
+    BOOL _inLiveResize;
+    HFRange _anchorRange;
+    long double _startLineOffset;
+    BOOL _resizeBinaryTemplate;
+    NSRect _windowFrameBeforeResize;
+    CGFloat _binaryTemplateWidthBeforeResize;
+}
 
 + (NSString *)userDefKeyForRepresenterWithName:(const char *)repName {
     NSString *result = nil;
@@ -77,12 +85,14 @@ static inline Class preferredByteArrayClass(void) {
     return NSStringFromClass(self);
 }
 
++ (CGFloat)binaryTemplateDefaultWidth {
+    return 250;
+}
+
 /* Register the default-defaults for this class. */
 + (void)registerDefaultDefaults {
-    static OSSpinLock sLock = OS_SPINLOCK_INIT;
-    OSSpinLockLock(&sLock); //use a spinlock to be safe, but contention should be very low because we only expect to make these on the main thread
-    static BOOL sRegisteredGlobalDefaults = NO;
-    if (! sRegisteredGlobalDefaults) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         /* Defaults common to all subclasses */
         NSDictionary *defs = @{
             @"AntialiasText"   : @YES,
@@ -91,15 +101,17 @@ static inline Class preferredByteArrayClass(void) {
             @"DefaultFontName" : HFDEFAULT_FONT,
             @"DefaultFontSize" : @(HFDEFAULT_FONTSIZE),
             @"BytesPerColumn"  : @4,
-            @"DefaultStringEncoding" : [NSKeyedArchiver archivedDataWithRootObject:[HFNSStringEncoding ascii]],
             @"DefaultEditMode" : @(HFInsertMode),
             @"BinaryTemplateSelectionColor" : [NSArchiver archivedDataWithRootObject:[NSColor lightGrayColor]],
-            @"BinaryTemplateRepresenterWidth" : @(250),
+            @"BinaryTemplateRepresenterWidth" : @(self.class.binaryTemplateDefaultWidth),
+            @"BinaryTemplateScriptTimeout" : @(10),
+            @"BinaryTemplatesSingleClickAction" : @(1), // scroll to offset
+            @"BinaryTemplatesDoubleClickAction" : @(0), // do nothing
+            @"BinaryTemplatesAutoCollapseValuedSections" : @NO,
             @"ResolveAliases": @YES,
         };
         [[NSUserDefaults standardUserDefaults] registerDefaults:defs];
-        sRegisteredGlobalDefaults = YES;
-    }
+    });
     
     static NSMutableArray *sRegisteredDefaultsByIdentifier = nil;
     NSString *ident = [self layoutUserDefaultIdentifier];
@@ -109,7 +121,9 @@ static inline Class preferredByteArrayClass(void) {
         [sRegisteredDefaultsByIdentifier addObject:ident];
         
         NSDictionary *defs = @{
+            USERDEFS_KEY_FOR_REP(columnRepresenter) : @NO,
             USERDEFS_KEY_FOR_REP(lineCountingRepresenter) : @YES,
+            USERDEFS_KEY_FOR_REP(binaryRepresenter) : @NO,
             USERDEFS_KEY_FOR_REP(hexRepresenter) : @YES,
             USERDEFS_KEY_FOR_REP(asciiRepresenter) : @YES,
             USERDEFS_KEY_FOR_REP(dataInspectorRepresenter) : @YES,
@@ -118,7 +132,6 @@ static inline Class preferredByteArrayClass(void) {
         };
         [[NSUserDefaults standardUserDefaults] registerDefaults:defs];
     }
-    OSSpinLockUnlock(&sLock);
 }
 
 + (void)initialize {
@@ -131,7 +144,9 @@ static inline Class preferredByteArrayClass(void) {
             @"DefaultFontSize" : @(HFDEFAULT_FONTSIZE),
             @"BytesPerColumn" : @4,
             @"LineNumberFormat" : @0,
+            USERDEFS_KEY_FOR_REP(columnRepresenter) : @NO,
             USERDEFS_KEY_FOR_REP(lineCountingRepresenter) : @YES,
+            USERDEFS_KEY_FOR_REP(binaryRepresenter) : @NO,
             USERDEFS_KEY_FOR_REP(hexRepresenter) : @YES,
             USERDEFS_KEY_FOR_REP(asciiRepresenter) : @YES,
             USERDEFS_KEY_FOR_REP(dataInspectorRepresenter) : @YES,
@@ -160,14 +175,17 @@ static inline Class preferredByteArrayClass(void) {
 }
 
 - (NSArray *)representers {
-    return @[lineCountingRepresenter,
-             hexRepresenter,
-             asciiRepresenter,
-             scrollRepresenter,
-             dataInspectorRepresenter,
-             statusBarRepresenter,
-             textDividerRepresenter,
-             binaryTemplateRepresenter,
+    return @[
+        lineCountingRepresenter,
+        binaryRepresenter,
+        hexRepresenter,
+        asciiRepresenter,
+        scrollRepresenter,
+        dataInspectorRepresenter,
+        statusBarRepresenter,
+        textDividerRepresenter,
+        binaryTemplateRepresenter,
+        columnRepresenter,
     ];
 }
 
@@ -203,7 +221,7 @@ static inline Class preferredByteArrayClass(void) {
 }
 
 - (BOOL)dividerRepresenterShouldBeShown {
-    return [self representerIsShown:hexRepresenter] && [self representerIsShown:asciiRepresenter];
+    return ([self representerIsShown:binaryRepresenter] || [self representerIsShown:hexRepresenter]) && [self representerIsShown:asciiRepresenter];
 }
 
 /* Called to show or hide the divider representer. This should be shown when both our text representers are visible */
@@ -220,7 +238,10 @@ static inline Class preferredByteArrayClass(void) {
 /* Code to save to user defs (NO) or apply from user defs (YES) the default representers to show. */
 - (void)saveOrApplyDefaultRepresentersToDisplay:(BOOL)isApplying {
     NSMapTable *shownRepresentersData = [NSMapTable strongToWeakObjectsMapTable];
+    [shownRepresentersData setObject:columnRepresenter
+        forKey:USERDEFS_KEY_FOR_REP(columnRepresenter)];
     [shownRepresentersData setObject:lineCountingRepresenter forKey:USERDEFS_KEY_FOR_REP(lineCountingRepresenter)];
+    [shownRepresentersData setObject:binaryRepresenter forKey:USERDEFS_KEY_FOR_REP(binaryRepresenter)];
     [shownRepresentersData setObject:hexRepresenter forKey:USERDEFS_KEY_FOR_REP(hexRepresenter)];
     [shownRepresentersData setObject:asciiRepresenter forKey:USERDEFS_KEY_FOR_REP(asciiRepresenter)];
     [shownRepresentersData setObject:dataInspectorRepresenter forKey:USERDEFS_KEY_FOR_REP(dataInspectorRepresenter)];
@@ -334,14 +355,22 @@ static inline Class preferredByteArrayClass(void) {
     }
 }
 
-- (CGFloat)minimumWindowFrameWidthForBytesPerLine:(NSUInteger)bytesPerLine {
-    NSView *layoutView = [layoutRepresenter view];
-    CGFloat resultingWidthInLayoutCoordinates = [layoutRepresenter minimumViewWidthForBytesPerLine:bytesPerLine];
-    NSSize resultSize = [layoutView convertSize:NSMakeSize(resultingWidthInLayoutCoordinates, 1) toView:nil];
-    return resultSize.width;
-}
-
 - (NSSize)minimumWindowFrameSizeForProposedSize:(NSSize)frameSize {
+    // If the command key was held down at the start of the window resize, and the binary templates
+    // are visible, only resize the binary templates view. Otherwise, resize the layout.
+    if (_resizeBinaryTemplate) {
+        const CGFloat widthDiff = frameSize.width - _windowFrameBeforeResize.size.width;
+        const CGFloat minBinaryTemplateWidth = self.class.binaryTemplateDefaultWidth;
+        const CGFloat minFrameWidth = (_windowFrameBeforeResize.size.width - _binaryTemplateWidthBeforeResize) + minBinaryTemplateWidth;
+        CGFloat binaryTemplateWidth = _binaryTemplateWidthBeforeResize + widthDiff;
+        NSSize resultSize = frameSize;
+        if (binaryTemplateWidth < minBinaryTemplateWidth) {
+            binaryTemplateWidth = minBinaryTemplateWidth;
+            resultSize.width = minFrameWidth;
+        }
+        binaryTemplateRepresenter.viewWidth = binaryTemplateWidth;
+        return resultSize;
+    }
     NSView *layoutView = [layoutRepresenter view];
     NSSize proposedSizeInLayoutCoordinates = [layoutView convertSize:frameSize fromView:nil];
     CGFloat resultingWidthInLayoutCoordinates = [layoutRepresenter minimumViewWidthForLayoutInProposedWidth:proposedSizeInLayoutCoordinates.width];
@@ -352,17 +381,70 @@ static inline Class preferredByteArrayClass(void) {
 - (NSSize)windowWillResize:(NSWindow *)sender toSize:(NSSize)frameSize {
     USE(sender);
     if (layoutRepresenter == nil) return frameSize;
+    if (@available(macOS 10.12, *)) {
+        NSSize size = NSZeroSize;
+        NSArray *windows = self.window.tabbedWindows.count ? self.window.tabbedWindows : @[self.window];
+        for (NSWindow *window in windows) {
+            NSSize windowSize = [window.windowController.document minimumWindowFrameSizeForProposedSize:frameSize];
+            size = NSMakeSize(MAX(size.width, windowSize.width), MAX(size.height, windowSize.height));
+        }
+        return size;
+    }
     return [self minimumWindowFrameSizeForProposedSize:frameSize];
 }
 
 - (void)windowDidResize:(NSNotification * __unused)notification
 {
     [self saveWindowState];
+    [self scrollToAnchoredOffset];
 }
 
 - (void)windowDidMove:(NSNotification * __unused)notification
 {
     [self saveWindowState];
+}
+
+- (void)windowWillStartLiveResize:(NSNotification * __unused)notification {
+    const BOOL isOptionKeyDown = (self.window.currentEvent.modifierFlags & NSEventModifierFlagCommand) != 0;
+    _resizeBinaryTemplate = isOptionKeyDown && [NSUserDefaults.standardUserDefaults boolForKey:USERDEFS_KEY_FOR_REP(binaryTemplateRepresenter)];
+    _windowFrameBeforeResize = self.window.frame;
+    _binaryTemplateWidthBeforeResize = binaryTemplateRepresenter.viewWidth;
+    _inLiveResize = YES;
+    [self updateScrollAnchorOffset];
+}
+
+- (void)windowDidEndLiveResize:(NSNotification *__unused)notification {
+    if (_resizeBinaryTemplate) {
+        [NSUserDefaults.standardUserDefaults setDouble:binaryTemplateRepresenter.viewWidth forKey:@"BinaryTemplateRepresenterWidth"];
+        _resizeBinaryTemplate = NO;
+    }
+    _inLiveResize = NO;
+}
+
+- (void)updateScrollAnchorOffset {
+    const HFFPRange displayedLineRange = controller.displayedLineRange;
+    const HFRange selectionRange = ((HFRangeWrapper *)controller.selectedContentsRanges[0]).HFRange;
+    const HFFPRange selectionFPRange = HFFPRangeMake([controller lineForRange:selectionRange], 1);
+    if (HFFPIntersectsRange(selectionFPRange, displayedLineRange)) {
+        _anchorRange = selectionRange;
+    } else {
+        // Selection is not visible, so anchor on the first fully visible line's first byte
+        const unsigned long long loc = (unsigned long long)ceill(displayedLineRange.location) * controller.bytesPerLine;
+        _anchorRange = HFRangeMake(loc, 0);
+    }
+    const unsigned long long startLine = [controller lineForRange:_anchorRange];
+    _startLineOffset = startLine - displayedLineRange.location;
+}
+
+- (void)scrollToAnchoredOffset {
+    if (!_inLiveResize) {
+        return;
+    }
+    HFFPRange displayedLineRange = controller.displayedLineRange;
+    const unsigned long long startLine = [controller lineForRange:_anchorRange];
+    displayedLineRange.location = startLine - _startLineOffset;
+    [controller adjustDisplayRangeAsNeeded:&displayedLineRange];
+    controller.displayedLineRange = displayedLineRange;
 }
 
 - (void)saveWindowState
@@ -378,10 +460,20 @@ static inline Class preferredByteArrayClass(void) {
     [ud setObject:NSStringFromPoint(frame.origin) forKey:@"WindowOrigin"];
 }
 
-/* Relayout the window without increasing its window frame size */
-- (void)relayoutAndResizeWindowPreservingFrame {
+/* Relayout the window, optionally changing its size based on the representer */
+- (void)relayoutAndResizeWindowForRepresenter:(HFRepresenter *)rep {
     NSWindow *window = [self window];
     NSRect windowFrame = [window frame];
+    // hack: expand the window width by the rep's view width for some reps
+    if (rep && ([rep isKindOfClass:[HFBinaryTemplateRepresenter class]] || [rep isKindOfClass:[HFLineCountingRepresenter class]])) {
+        NSView *view = rep.view;
+        CGFloat minWidth = view.frame.size.width;
+        if (view.window) {
+            windowFrame.size.width += minWidth;
+        } else {
+            windowFrame.size.width -= minWidth;
+        }
+    }
     windowFrame.size = [self minimumWindowFrameSizeForProposedSize:windowFrame.size];
     [window setFrame:windowFrame display:YES];
 }
@@ -401,7 +493,7 @@ static inline Class preferredByteArrayClass(void) {
 - (void)setupWindowEnforcingBytesPerLine:(NSUInteger)bplOrZero {
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
 
-    loadingWindow = true;
+    loadingWindow = YES;
 
     layoutRepresenter = [[HFLayoutRepresenter alloc] init];
     [controller addRepresenter:layoutRepresenter];
@@ -422,7 +514,7 @@ static inline Class preferredByteArrayClass(void) {
         /* Here we probably get smaller */
         NSNumber *bpl = [ud objectForKey:@"BytesPerLine"];
         if (!bpl || ![bpl isKindOfClass:[NSNumber class]]) {
-            [self relayoutAndResizeWindowPreservingFrame];
+            [self relayoutAndResizeWindowForRepresenter:nil];
         } else {
             [self relayoutAndResizeWindowForBytesPerLine:bpl.integerValue];
         }
@@ -435,7 +527,7 @@ static inline Class preferredByteArrayClass(void) {
         [[self window] setFrame:frame display:YES];
     }
 
-    loadingWindow = false;
+    loadingWindow = NO;
 }
 
 - (void)windowControllerDidLoadNib:(NSWindowController *)windowController {
@@ -461,9 +553,7 @@ static inline Class preferredByteArrayClass(void) {
     containerView = contentView;
     
     /* Remove all of its subviews */
-    for (NSView *view in contentView.subviews) {
-        [view removeFromSuperview];
-    }
+    contentView.subviews = @[];
 
     /* Set up the window */
     [self setupWindowEnforcingBytesPerLine:oldBPL];
@@ -475,6 +565,11 @@ static inline Class preferredByteArrayClass(void) {
     HFASSERT([note object] == lineCountingRepresenter);
     NSView *lineCountingView = [lineCountingRepresenter view];
     
+    CGFloat newWidth = [lineCountingRepresenter preferredWidth];
+    
+    // Always update column representer
+    [columnRepresenter setLineCountingWidth:newWidth];
+
     /* Don't do anything window changing if we're not in a window yet */
     NSWindow *lineCountingViewWindow = [lineCountingView window];
     if (! lineCountingViewWindow) return;
@@ -482,7 +577,6 @@ static inline Class preferredByteArrayClass(void) {
     HFASSERT(lineCountingViewWindow == [self window]);
     
     CGFloat currentWidth = NSWidth([lineCountingView frame]);
-    CGFloat newWidth = [lineCountingRepresenter preferredWidth];
     if (newWidth != currentWidth) {
         CGFloat widthChange = newWidth - currentWidth; //if we shrink, widthChange will be negative
         CGFloat windowWidthChange = [[lineCountingView superview] convertSize:NSMakeSize(widthChange, 0) toView:nil].width;
@@ -501,6 +595,46 @@ static inline Class preferredByteArrayClass(void) {
         /* If we are not setting the font, we want to grow the window left, so that the content area is preserved.  If we are setting the font, grow the window right. */
         if (! currentlySettingFont) windowFrame.origin.x -= windowWidthChange;
         [lineCountingViewWindow setFrame:windowFrame display:YES animate:NO];
+    }
+}
+
+- (void)columnRepresenterViewHeightChanged:(NSNotification *)note {
+    USE(note);
+    HFASSERT([note object] == columnRepresenter);
+
+    NSView *columnView = [columnRepresenter view];
+    
+    /* Don't do anything window changing if we're not in a window yet */
+    NSWindow *columnViewWindow = [columnView window];
+    if (!columnViewWindow) {
+        return;
+    }
+    
+    CGFloat newHeight = [columnRepresenter preferredHeight];
+    
+    HFASSERT(columnViewWindow == [self window]);
+    
+    CGFloat currentHeight = columnView.frame.size.height;
+    if (newHeight != currentHeight) {
+        CGFloat heightChange = newHeight - currentHeight; //if we shrink, heightChange will be negative
+        CGFloat windowHeightChange = [columnView.superview convertSize:NSMakeSize(0, heightChange) toView:nil].height;
+        windowHeightChange = (windowHeightChange < 0 ? HFFloor(windowHeightChange) : HFCeil(windowHeightChange));
+        
+        /* convertSize: has a nasty habit of stomping on negatives.  Make our window height change negative if our view-space vertical change was negative. */
+#if CGFLOAT_IS_DOUBLE
+        windowHeightChange = copysign(windowHeightChange, heightChange);
+#else
+        windowHeightChange = copysignf(windowHeightChange, heightChange);
+#endif
+        
+        NSRect windowFrame = columnViewWindow.frame;
+        windowFrame.size.height += windowHeightChange;
+        
+        /* If we are not setting the font, we want to grow the window top, so that the content area is preserved.  If we are setting the font, grow the window bottom. */
+        if (!currentlySettingFont) {
+            windowFrame.origin.y -= windowHeightChange;
+        }
+        [columnViewWindow setFrame:windowFrame display:YES animate:NO];
     }
 }
 
@@ -532,7 +666,9 @@ static inline Class preferredByteArrayClass(void) {
     /* Make sure we register our defaults for this class */
     [[self class] registerDefaultDefaults];
     
+    columnRepresenter = [[HFColumnRepresenter alloc] init];
     lineCountingRepresenter = [[HFLineCountingRepresenter alloc] init];
+    binaryRepresenter = [[HFBinaryTextRepresenter alloc] init];
     hexRepresenter = [[HFHexTextRepresenter alloc] init];
     asciiRepresenter = [[HFStringEncodingTextRepresenter alloc] init];
     scrollRepresenter = [[HFVerticalScrollerRepresenter alloc] init];
@@ -540,21 +676,28 @@ static inline Class preferredByteArrayClass(void) {
     dataInspectorRepresenter = [[DataInspectorRepresenter alloc] init];
     textDividerRepresenter = [[TextDividerRepresenter alloc] init];
     binaryTemplateRepresenter = [[HFBinaryTemplateRepresenter alloc] init];
+    binaryTemplateRepresenter.viewWidth = [NSUserDefaults.standardUserDefaults doubleForKey:@"BinaryTemplateRepresenterWidth"];
 
     /* We will create layoutRepresenter when the window is actually shown
      * so that it will never exist in an inconsistent state */
     
+    [(NSView *)[binaryRepresenter view] setAutoresizingMask:NSViewHeightSizable];
     [(NSView *)[hexRepresenter view] setAutoresizingMask:NSViewHeightSizable];
-    [(NSView *)[asciiRepresenter view] setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [(NSView *)[asciiRepresenter view] setAutoresizingMask:NSViewHeightSizable];
+    [(NSView *)[lineCountingRepresenter view] setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     
     NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
     [center addObserver:self selector:@selector(lineCountingViewChangedWidth:) name:HFLineCountingRepresenterMinimumViewWidthChanged object:lineCountingRepresenter];
+    [center addObserver:self selector:@selector(columnRepresenterViewHeightChanged:) name:HFColumnRepresenterViewHeightChanged object:columnRepresenter];
     [center addObserver:self selector:@selector(lineCountingRepCycledLineNumberFormat:) name:HFLineCountingRepresenterCycledLineNumberFormat object:lineCountingRepresenter];
     [center addObserver:self selector:@selector(dataInspectorChangedRowCount:) name:DataInspectorDidChangeRowCount object:dataInspectorRepresenter];
     [center addObserver:self selector:@selector(dataInspectorDeletedAllRows:) name:DataInspectorDidDeleteAllRows object:dataInspectorRepresenter];
+
     NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
     
     lineCountingRepresenter.lineNumberFormat = (HFLineNumberFormat)[defs integerForKey:@"LineNumberFormat"];
+
+    [columnRepresenter setLineCountingWidth:lineCountingRepresenter.preferredWidth];
     
     controller = [[HFController alloc] init];
     [controller setShouldAntialias:[defs boolForKey:@"AntialiasText"]];
@@ -694,15 +837,22 @@ static inline Class preferredByteArrayClass(void) {
     }
     else {
         HFRepresenter *rep = representers[arrayIndex];
+        BOOL isLineCounting = [rep isKindOfClass:[HFLineCountingRepresenter class]];
         if ([self representerIsShown:rep]) {
             [self hideViewForRepresenter:rep];
             [self showOrHideDividerRepresenter];
-            [self relayoutAndResizeWindowPreservingFrame];
+            [self relayoutAndResizeWindowForRepresenter:rep];
+            if (isLineCounting) {
+                [columnRepresenter setLineCountingWidth:0];
+            }
         }
         else {
             [self showViewForRepresenter:rep];
             [self showOrHideDividerRepresenter];
-            [self relayoutAndResizeWindowPreservingFrame];
+            [self relayoutAndResizeWindowForRepresenter:rep];
+            if (isLineCounting) {
+                [columnRepresenter setLineCountingWidth:((NSView *)lineCountingRepresenter.view).frame.size.width];
+            }
         }
         [self saveDefaultRepresentersToDisplay];
     }
@@ -715,7 +865,6 @@ static inline Class preferredByteArrayClass(void) {
     USE(undo);
 
     NSWindow *window = [self window];
-    NSDisableScreenUpdates();
     NSUInteger bytesPerLine = [controller bytesPerLine];
     /* Record that we are currently setting the font.  We use this to decide which direction to grow the window if our line numbers change. */
     currentlySettingFont = YES;
@@ -723,7 +872,6 @@ static inline Class preferredByteArrayClass(void) {
     [self relayoutAndResizeWindowForBytesPerLine:bytesPerLine];
     currentlySettingFont = NO;
     [window display];
-    NSEnableScreenUpdates();
     NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
     [defs setDouble:[font pointSize] forKey:@"DefaultFontSize"];
     [defs setObject:[font fontName] forKey:@"DefaultFontName"];
@@ -878,22 +1026,22 @@ static inline Class preferredByteArrayClass(void) {
     else if (action == @selector(setOverwriteMode:)) {
         [item setState:[controller editMode] == HFOverwriteMode];
         /* We can toggle overwrite mode only if the controller doesn't require that it be on */
-        return YES;
+        return controller.savable;
     }
     else if (action == @selector(setInsertMode:)) {
         [item setState:[controller editMode] == HFInsertMode];
-        return ![self requiresOverwriteMode];
+        return controller.savable && ![self requiresOverwriteMode];
     }
     else if (action == @selector(setReadOnlyMode:)) {
         [item setState:[controller editMode] == HFReadOnlyMode];
-        return YES;
+        return controller.savable;
     }
     else if (action == @selector(modifyByteGrouping:)) {
         [item setState:(NSUInteger)[item tag] == [controller bytesPerColumn]];
         return YES;
     }
     else if (action == @selector(setLineNumberFormat:)) {
-        item.state = item.tag == lineCountingRepresenter.lineNumberFormat ? NSOnState : NSOffState;
+        item.state = item.tag == (NSInteger)lineCountingRepresenter.lineNumberFormat ? NSOnState : NSOffState;
         return YES;
     }
     else if (action == @selector(scrollToBookmark:) || action == @selector(selectBookmark:)) {
@@ -979,8 +1127,10 @@ static inline Class preferredByteArrayClass(void) {
     double amount = diff / .15;
     amount = fmin(fmax(amount, 0), 1);
     if (! bannerGrowing) amount = 1. - amount;
+    NSView *bannerRelativeView = [self bannerAssociateView];
     if (bannerGrowing && diff >= 0 && [bannerView superview] != containerView) {
-        [containerView addSubview:bannerView positioned:NSWindowBelow relativeTo:[layoutRepresenter view]];
+        NSAssert([bannerRelativeView superview] == containerView, @"oops");
+        [containerView addSubview:bannerView positioned:NSWindowBelow relativeTo:bannerRelativeView];
         if (targetFirstResponderInBanner) {
             NSWindow *window = [self window];
             savedFirstResponder = [window firstResponder];
@@ -992,10 +1142,9 @@ static inline Class preferredByteArrayClass(void) {
     bannerFrame.size.height = height;
     bannerFrame.origin.y = NSMaxY(containerView.frame) - height;
     [bannerView setFrame:bannerFrame];
-    NSView *layoutView = [layoutRepresenter view];
-    NSRect layoutFrame = layoutView.frame;
+    NSRect layoutFrame = bannerRelativeView.frame;
     layoutFrame.size.height = containerView.frame.size.height - height;
-    layoutView.frame = layoutFrame;
+    bannerRelativeView.frame = layoutFrame;
 
     if (isFirstCall) {
         /* The first display can take some time, which can cause jerky animation; so we start the animation after it */
@@ -1008,6 +1157,11 @@ static inline Class preferredByteArrayClass(void) {
         }
         [self finishedAnimation];
     }
+}
+
+- (NSView *)bannerAssociateView
+{
+    return [layoutRepresenter view];
 }
 
 - (BOOL)canSwitchToNewBanner {
@@ -1090,7 +1244,7 @@ static inline Class preferredByteArrayClass(void) {
         saveResult = [result integerValue];
         
         /* Post an event so our event loop wakes up */
-        [NSApp postEvent:[NSEvent otherEventWithType:NSApplicationDefined location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:NULL subtype:0 data1:0 data2:0] atStart:NO];
+        [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:NULL subtype:0 data1:0 data2:0] atStart:NO];
     }];
 
     if (operationError && outError) {
@@ -1100,7 +1254,7 @@ static inline Class preferredByteArrayClass(void) {
     while ([saveView operationIsRunning]) {
         @autoreleasepool {
             @try {  
-                NSEvent *event = [NSApp nextEventMatchingMask:NSAnyEventMask untilDate:[NSDate distantFuture] inMode:NSDefaultRunLoopMode dequeue:YES];
+                NSEvent *event = [NSApp nextEventMatchingMask:NSUIntegerMax untilDate:[NSDate distantFuture] inMode:NSDefaultRunLoopMode dequeue:YES];
                 if (event) [NSApp sendEvent:event];
             }
             @catch (NSException *localException) {
@@ -1595,7 +1749,7 @@ cancelled:;
                 initWithTitle:[NSString stringWithFormat:@"Select Bookmark %lu", (unsigned long)bookmarkIndex]
                 action:@selector(selectBookmark:)
                 keyEquivalent:keString];
-        [item setKeyEquivalentModifierMask:NSCommandKeyMask];
+        [item setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
         [item setAlternate:NO];
         [item setTag:bookmarkIndex];
         [items addObject:item];
@@ -1604,7 +1758,7 @@ cancelled:;
                 initWithTitle:[NSString stringWithFormat:@"Scroll to Bookmark %lu", (unsigned long)bookmarkIndex]
                 action:@selector(scrollToBookmark:)
                 keyEquivalent:keString];
-        [item setKeyEquivalentModifierMask:NSCommandKeyMask | NSShiftKeyMask];
+        [item setKeyEquivalentModifierMask:NSEventModifierFlagCommand | NSEventModifierFlagShift];
         [item setAlternate:YES];
         [item setTag:bookmarkIndex];
         [items addObject:item];
@@ -1624,9 +1778,22 @@ cancelled:;
     [self setFont:[sender convertFont:[self font]] registeringUndo:YES];
 }
 
-- (IBAction)modifyByteGrouping:sender {
-    NSUInteger bytesPerLine = [controller bytesPerLine], newDesiredBytesPerLine;
+- (NSFontPanelModeMask)validModesForFontPanel:(NSFontPanel * __unused)fontPanel {
+    // NSFontPanel can choose color and style, but Hex Fiend only supports
+    // customizing the font face, so only return that for the mask. This method
+    // is part of the NSFontChanging protocol.
+    // Note: as of 10.15.2, even with no other mask set, the font panel still shows
+    // a gear pop up button that allows bringing up the Color panel.
+    return NSFontPanelModeMaskFace;
+}
+
+- (IBAction)modifyByteGrouping:(id)sender {
     NSUInteger newBytesPerColumn = (NSUInteger)[sender tag];
+    [self setByteGrouping:newBytesPerColumn];
+}
+
+- (void)setByteGrouping:(NSUInteger)newBytesPerColumn {
+    NSUInteger bytesPerLine = [controller bytesPerLine], newDesiredBytesPerLine;
     if (newBytesPerColumn == 0) {
         newDesiredBytesPerLine = bytesPerLine;
     }
@@ -1636,6 +1803,17 @@ cancelled:;
     [controller setBytesPerColumn:newBytesPerColumn];
     [self relayoutAndResizeWindowForBytesPerLine:newDesiredBytesPerLine]; //this ensures that the window does not shrink when going e.g. from 4->8->4
     [[NSUserDefaults standardUserDefaults] setInteger:newBytesPerColumn forKey:@"BytesPerColumn"];
+}
+
+- (IBAction)customByteGrouping:(id __unused)sender {
+    NSString *byteGrouping = HFPromptForValue(NSLocalizedString(@"Enter a custom byte grouping", ""));
+    if (byteGrouping) {
+        NSInteger value = byteGrouping.integerValue;
+        if (value >= 0) {
+            [self setByteGrouping:value];
+            [(AppDelegate *)NSApp.delegate buildByteGroupingMenu];
+        }
+    }
 }
 
 - (IBAction)setOverwriteMode:sender {
@@ -1760,14 +1938,6 @@ cancelled:;
     return result;
 }
 
-
-+ (void)didEndBreakFileDependencySheet:(NSAlert *)alert returnCode:(NSInteger)returnCode contextInfo:(void *)contextInfo {
-    USE(alert);
-    USE(contextInfo);
-    [NSApp stopModalWithCode:returnCode];
-    
-}
-
 + (void)prepareForChangeInFileByBreakingFileDependencies:(NSNotification *)note {
     HFFileReference *fileReference = [note object];
     NSDictionary *userInfo = [note userInfo];
@@ -1809,7 +1979,9 @@ cancelled:;
             [alert setInformativeText:NSLocalizedString(@"To save that document, you must close this one.", "")];
             [alert addButtonWithTitle:NSLocalizedString(@"Cancel Save", "")];
             [alert addButtonWithTitle:NSLocalizedString(@"Close, Discarding Any Changes", "")];
-            [alert beginSheetModalForWindow:[document windowForSheet] modalDelegate:self didEndSelector:@selector(didEndBreakFileDependencySheet:returnCode:contextInfo:) contextInfo:nil];
+            [alert beginSheetModalForWindow:[document windowForSheet] completionHandler:^(NSModalResponse returnCode) {
+                [NSApp stopModalWithCode:returnCode];
+            }];
             NSInteger modalResult = [NSApp runModalForWindow:[alert window]];
             
             BOOL didCancel = (modalResult == NSAlertFirstButtonReturn);
@@ -1949,6 +2121,11 @@ cancelled:;
     savePanel.showsHiddenFiles = YES;
     savePanel.accessoryView = nil; // defeat useless "File Format" accessory view
     return YES;
+}
+
+- (BOOL)isInViewingMode {
+    // NSDocument override
+    return !controller.savable || super.isInViewingMode;
 }
 
 @end

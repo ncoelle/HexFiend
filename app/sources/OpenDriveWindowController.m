@@ -9,10 +9,12 @@
 #import "OpenDriveWindowController.h"
 #import "AppUtilities.h"
 #include <sys/stat.h>
-#include <objc/message.h>
 
 /* A key used to store the new URL for recovery suggestions for certain errors */
 #define kNewURLErrorKey @"NewURL"
+
+/* Macro to specify functions and function parameters as unused. */
+#define UNUSED __attribute__((unused))
 
 /* Recovery option indexes */
 enum {
@@ -89,6 +91,12 @@ enum {
 - (NSString *)windowNibName
 {
     return @"OpenDriveDialog";
+}
+
+- (void)awakeFromNib
+{
+    table.doubleAction = @selector(selectDrive:);
+    table.target = self;
 }
 
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
@@ -268,8 +276,14 @@ static CFURLRef copyCharacterDevicePathForPossibleBlockDevice(NSURL *url)
 }
 
 - (void)attemptRecoveryFromError:(NSError *)error optionIndex:(NSUInteger)recoveryOptionIndex delegate:(id)delegate didRecoverSelector:(SEL)didRecoverSelector contextInfo:(void *)contextInfo {
-    BOOL success = [self attemptRecoveryFromError:error optionIndex:recoveryOptionIndex];
-    objc_msgSend(delegate, didRecoverSelector, success, contextInfo);
+    const BOOL success = [self attemptRecoveryFromError:error optionIndex:recoveryOptionIndex];
+
+    NSInvocation *invoke = [NSInvocation invocationWithMethodSignature:
+                                   [delegate methodSignatureForSelector:didRecoverSelector]];
+    [invoke setSelector:didRecoverSelector];
+    [invoke setArgument:(void *)&success atIndex:2];
+    [invoke setArgument:&contextInfo atIndex:3];
+    [invoke invokeWithTarget:delegate];
 }
 
 - (void)openURL:(NSURL *)url completionHandler:(OpenURLCompletionHandler)completionHandler {

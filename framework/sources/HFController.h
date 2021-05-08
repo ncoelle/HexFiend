@@ -5,6 +5,8 @@
 //  Copyright 2007 ridiculous_fish. All rights reserved.
 //
 
+#import <HexFiend/HFFrameworkPrefix.h>
+
 NS_ASSUME_NONNULL_BEGIN
 
 /*! @header HFController
@@ -36,6 +38,7 @@ typedef NS_OPTIONS(NSUInteger, HFControllerPropertyBits) {
     HFControllerShowCallouts = 1 << 16, /*!< Indicates that the shouldShowCallouts property has changed. */
     HFControllerHideNullBytes = 1 << 17, /*!< Indicates that the shouldHideNullBytes property has changed. */
     HFControllerColorRanges = 1 << 18, /*!< Indicates that the colorRanges property has changed. */
+    HFControllerSavable = 1 << 19, /*!< Indicates that the document has become (or is no longer) savable. */
 };
 
 /*! @enum HFControllerMovementDirection
@@ -136,6 +139,7 @@ You create an HFController via <tt>[[HFController alloc] init]</tt>.  After that
         BOOL shiftExtendSelection;
         BOOL commandExtendSelection;
         BOOL livereload;
+        BOOL savable;
     } _hfflags;
 }
 
@@ -261,14 +265,14 @@ You create an HFController via <tt>[[HFController alloc] init]</tt>.  After that
 /*! Modify the displayedLineRange as to center the given contents range.  If the range is near the bottom or top, this will center as close as possible.  If contents range is too large to fit, it centers the top of the range.  contentsRange may be empty. */
 - (void)centerContentsRange:(HFRange)range;
 
+- (void)adjustDisplayRangeAsNeeded:(HFFPRange *)range;
+
+- (unsigned long long)lineForRange:(const HFRange)range;
+
 //@}
 
 /*! The current font. */
-#if TARGET_OS_IPHONE
-@property (nonatomic, copy) UIFont *font;
-#else
-@property (nonatomic, copy) NSFont *font;
-#endif
+@property (nonatomic, copy) HFFont *font;
 
 /*! The undo manager. If no undo manager is set, then undo is not supported. By default the undo manager is nil.
 */
@@ -276,6 +280,9 @@ You create an HFController via <tt>[[HFController alloc] init]</tt>.  After that
 
 /*! Whether the user can edit the document. */
 @property (nonatomic) BOOL editable;
+
+/*! Whether the user can save the document. */
+@property (nonatomic) BOOL savable;
 
 /*! Whether the text should be antialiased. Note that Mac OS X settings may prevent antialiasing text below a certain point size. */
 @property (nonatomic) BOOL shouldAntialias;

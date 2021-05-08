@@ -8,6 +8,8 @@
 #import <HexFiend/HFHexPasteboardOwner.h>
 #import <HexFiend/HFProgressTracker.h>
 #import <HexFiend/HFByteArray.h>
+#import <HexFiend/HFFunctions.h>
+#import <HexFiend/HFAssert.h>
 
 static inline unsigned char hex2char(NSUInteger c) {
     HFASSERT(c < 16);
@@ -15,8 +17,6 @@ static inline unsigned char hex2char(NSUInteger c) {
 }
 
 @implementation HFHexPasteboardOwner
-
-@synthesize bytesPerColumn = _bytesPerColumn;
 
 - (unsigned long long)stringLengthForDataLength:(unsigned long long)dataLength {
     if(!dataLength) return 0;

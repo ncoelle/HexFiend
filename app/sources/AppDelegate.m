@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #import <HexFiend/HFCustomEncoding.h>
+#import <HexFiend/HFEncodingManager.h>
 
 @interface AppDelegate ()
 
@@ -49,16 +50,19 @@
     }
 
     [NSThread detachNewThreadSelector:@selector(buildFontMenu:) toTarget:self withObject:nil];
-    [extendForwardsItem setKeyEquivalentModifierMask:[extendForwardsItem keyEquivalentModifierMask] | NSShiftKeyMask];
-    [extendBackwardsItem setKeyEquivalentModifierMask:[extendBackwardsItem keyEquivalentModifierMask] | NSShiftKeyMask];
+    [extendForwardsItem setKeyEquivalentModifierMask:[extendForwardsItem keyEquivalentModifierMask] | NSEventModifierFlagShift];
+    [extendBackwardsItem setKeyEquivalentModifierMask:[extendBackwardsItem keyEquivalentModifierMask] | NSEventModifierFlagShift];
     [extendForwardsItem setKeyEquivalent:@"]"];
     [extendBackwardsItem setKeyEquivalent:@"["];	
     [self buildEncodingMenu];
+    [self buildByteGroupingMenu];
 
     [self processCommandLineArguments];
 
     NSDistributedNotificationCenter *ndc = [NSDistributedNotificationCenter defaultCenter];
     
+    __weak typeof(self) weakSelf = self;
+
     [ndc addObserverForName:@"HFOpenFileNotification" object:nil queue:nil usingBlock:^(NSNotification * _Nonnull notification) {
         [NSApp activateIgnoringOtherApps:YES];
         NSDictionary *userInfo = notification.userInfo;
@@ -66,7 +70,7 @@
         if ([files isKindOfClass:[NSArray class]]) {
             for (NSString *file in files) {
                 if ([file isKindOfClass:[NSString class]]) {
-                    [self openFile:file];
+                    [weakSelf openFile:file];
                 }
             }
         }
@@ -80,7 +84,7 @@
             NSString *file1 = [files objectAtIndex:0];
             NSString *file2 = [files objectAtIndex:1];
             if ([file1 isKindOfClass:[NSString class]] && [file2 isKindOfClass:[NSString class]]) {
-                [self compareLeftFile:file1 againstRightFile:file2];
+                [weakSelf compareLeftFile:file1 againstRightFile:file2];
             }
         }
     }];
@@ -89,60 +93,35 @@
         [NSApp activateIgnoringOtherApps:YES];
         NSDictionary *userInfo = notification.userInfo;
         NSData *data = [userInfo objectForKey:@"data"];
-        [self openData:data];
+        [weakSelf openData:data];
     }];
 }
 
 - (void)buildEncodingMenu {
-    NSArray<NSDictionary *> *encodings = @[
-        @{
-              @"value" : @(NSASCIIStringEncoding),
-              @"title" : NSLocalizedString(@"ASCII (strict 7 bit)", ""),
-        },
-        @{
-              @"value" : @(NSMacOSRomanStringEncoding),
-              @"title" : NSLocalizedString(@"MacRoman", ""),
-        },
-        @{
-              @"value" : @(NSISOLatin1StringEncoding),
-              @"title" : NSLocalizedString(@"ISO Latin-1 (Western Europe)", ""),
-        },
-        @{
-              @"value" : @(NSISOLatin2StringEncoding),
-              @"title" : NSLocalizedString(@"ISO Latin-2 (Eastern Europe)", ""),
-        },
-        @{
-              @"value" : @(NSUTF16LittleEndianStringEncoding),
-              @"title" : NSLocalizedString(@"UTF-16 Little (0xFFFE)", ""),
-        },
-        @{
-              @"value" : @(NSUTF16BigEndianStringEncoding),
-              @"title" : NSLocalizedString(@"UTF-16 Big (0xFEFF)", ""),
-        },
-    ];
-    for (NSDictionary *dict in encodings) {
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:dict[@"title"] action:@selector(setStringEncodingFromMenuItem:) keyEquivalent:@""];
-        item.representedObject = [[HFNSStringEncoding alloc] initWithEncoding:[(NSNumber *)dict[@"value"] integerValue]];
+    NSStringEncoding defaultEncodings[] = {
+        NSASCIIStringEncoding,
+        NSMacOSRomanStringEncoding,
+        NSISOLatin1StringEncoding,
+        NSISOLatin2StringEncoding,
+        NSUTF16LittleEndianStringEncoding,
+        NSUTF16BigEndianStringEncoding,
+    };
+    HFEncodingManager *encodingManager = [HFEncodingManager shared];
+    for (size_t i = 0; i < sizeof(defaultEncodings) / sizeof(defaultEncodings[0]); ++i) {
+        NSStringEncoding encoding = defaultEncodings[i];
+        HFNSStringEncoding *encodingObj = [encodingManager systemEncoding:encoding];
+        HFASSERT(encodingObj != nil);
+        NSString *title = encodingObj.name;
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:@selector(setStringEncodingFromMenuItem:) keyEquivalent:@""];
+        item.representedObject = encodingObj;
         [stringEncodingMenu addItem:item];
     }
     
     NSString *encodingsFolder = [[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:[NSBundle mainBundle].bundleIdentifier] stringByAppendingPathComponent:@"Encodings"];
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSMutableArray<HFCustomEncoding *> *customEncodings = [NSMutableArray array];
-    for (NSString *filename in [fm enumeratorAtPath:encodingsFolder]) {
-        if ([filename.pathExtension isEqualToString:@"json"]) {
-            NSString *path = [encodingsFolder stringByAppendingPathComponent:filename];
-            HFCustomEncoding *encoding = [[HFCustomEncoding alloc] initWithPath:path];
-            if (!encoding) {
-                NSLog(@"Error with file %@", path);
-                continue;
-            }
-            [customEncodings addObject:encoding];
-        }
-    }
+    NSArray<HFCustomEncoding *> *customEncodings = [encodingManager loadCustomEncodingsFromDirectory:encodingsFolder];
     if (customEncodings.count > 0) {
         [stringEncodingMenu addItem:[NSMenuItem separatorItem]];
-        [customEncodings sortUsingSelector:@selector(compare:)];
+        customEncodings = [customEncodings sortedArrayUsingSelector:@selector(compare:)];
         for (HFCustomEncoding *encoding in customEncodings) {
             NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:encoding.name action:@selector(setStringEncodingFromMenuItem:) keyEquivalent:@""];
             item.representedObject = encoding;
@@ -155,6 +134,26 @@
     NSMenuItem *otherEncodingsItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Other…", "") action:@selector(showWindow:) keyEquivalent:@""];
     otherEncodingsItem.target = chooseStringEncoding;
     [stringEncodingMenu addItem:otherEncodingsItem];
+}
+
+- (void)buildByteGroupingMenu {
+    NSInteger defaults[] = {0, 1, 2, 3, 4, 8, 16, 32};
+    NSMutableIndexSet *set = [NSMutableIndexSet indexSet];
+    for (size_t i = 0; i < sizeof(defaults) / sizeof(defaults[0]); i++) {
+        [set addIndex:defaults[i]];
+    }
+    [set addIndex:[[NSUserDefaults standardUserDefaults] integerForKey:@"BytesPerColumn"]];
+    NSMenu *menu = [[NSMenu alloc] init];
+    [set enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop __unused) {
+        NSString *title = idx == 0 ? NSLocalizedString(@"None", "") : [NSString stringWithFormat:@"%ld", idx];
+        NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:title action:@selector(modifyByteGrouping:) keyEquivalent:@""];
+        menuItem.tag = idx;
+        menuItem.target = nil;
+        [menu addItem:menuItem];
+    }];
+    [menu addItem:[NSMenuItem separatorItem]];
+    [menu addItemWithTitle:NSLocalizedString(@"Custom…", "") action:@selector(customByteGrouping:) keyEquivalent:@""];
+    byteGroupingMenuItem.submenu = menu;
 }
 
 static NSComparisonResult compareFontDisplayNames(NSFont *a, NSFont *b, void *unused) {
@@ -194,8 +193,8 @@ static NSComparisonResult compareFontDisplayNames(NSFont *a, NSFont *b, void *un
 
 - (void)receiveFonts:(NSArray *)fonts {
     NSMenu *menu = [fontMenuItem submenu];
-    [menu removeItemAtIndex:0];
-    NSUInteger itemIndex = 0;
+    NSUInteger indexOfItemToAdd = [menu indexOfItem:fontListPlaceholderMenuItem];
+    [menu removeItem:fontListPlaceholderMenuItem];
     for(NSFont *font in fonts) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:[font displayName] action:@selector(setFontFromMenuItem:) keyEquivalent:@""];
         NSDictionary *attrs = @{
@@ -205,7 +204,7 @@ static NSComparisonResult compareFontDisplayNames(NSFont *a, NSFont *b, void *un
         [item setAttributedTitle:astr];
         [item setRepresentedObject:font];
         [item setTarget:self];
-        [menu insertItem:item atIndex:itemIndex++];
+        [menu insertItem:item atIndex:indexOfItemToAdd++];
         /* Validate the menu item in case the menu is currently open, so it gets the right check */
         [self validateMenuItem:item];
     }
@@ -269,8 +268,8 @@ static NSComparisonResult compareFontDisplayNames(NSFont *a, NSFont *b, void *un
 
 - (IBAction)diffFrontDocumentsByRange:(id)sender {
     USE(sender);
-    DiffRangeWindowController* range = [[DiffRangeWindowController alloc] initWithWindowNibName:@"DiffRangeDialog"];
-    [range showWindow:self];
+    DiffRangeWindowController *diffRangeWindowController = [[DiffRangeWindowController alloc] initWithWindowNibName:@"DiffRangeDialog"];
+    [diffRangeWindowController runModal];
 }
 
 - (void)menuNeedsUpdate:(NSMenu *)menu {
@@ -323,20 +322,36 @@ static NSComparisonResult compareFontDisplayNames(NSFont *a, NSFont *b, void *un
 }
 
 - (HFStringEncoding *)defaultStringEncoding {
+    HFEncodingManager *manager = [HFEncodingManager shared];
     id obj = [[NSUserDefaults standardUserDefaults] objectForKey:@"DefaultStringEncoding"];
     if ([obj isKindOfClass:[NSNumber class]]) {
         // Old format just stored encoding raw
         NSStringEncoding encoding = [(NSNumber *)obj integerValue];
-        return [[HFNSStringEncoding alloc] initWithEncoding:encoding];
-    } else if ([obj isKindOfClass:[NSData class]]) {
-        HFStringEncoding *encoding = [NSKeyedUnarchiver unarchiveObjectWithData:obj];
-        if ([encoding isKindOfClass:[HFStringEncoding class]]) {
-            return encoding;
+        HFNSStringEncoding *encodingObj = [manager systemEncoding:encoding];
+        if (encodingObj) {
+            return encodingObj;
         } else {
-            NSLog(@"Invalid encoding object: %@", encoding);
+            NSLog(@"Failed to find encoding object for %ld", encoding);
+        }
+    } else if ([obj isKindOfClass:[NSData class]]) {
+        HFStringEncoding *encodingObj = [NSKeyedUnarchiver unarchiveObjectWithData:obj];
+        if ([encodingObj isKindOfClass:[HFCustomEncoding class]]) {
+            return encodingObj;
+        } else if ([encodingObj isKindOfClass:[HFNSStringEncoding class]]) {
+            // we only encode the raw encoding in HFNSStringEncoding, so get the
+            // object from the manager so we can use proper name and identifier
+            HFNSStringEncoding *nsencoding = (HFNSStringEncoding *)encodingObj;
+            encodingObj = [manager systemEncoding:nsencoding.encoding];
+            if (encodingObj) {
+                return encodingObj;
+            } else {
+                NSLog(@"Failed to find encoding object for %ld", nsencoding.encoding);
+            }
+        } else {
+            NSLog(@"Invalid encoding object: %@", encodingObj);
         }
     }
-    return [HFNSStringEncoding ascii];
+    return manager.ascii;
 }
 
 - (void)setStringEncoding:(HFStringEncoding *)encoding {
@@ -372,12 +387,7 @@ static NSComparisonResult compareFontDisplayNames(NSFont *a, NSFont *b, void *un
                     self.diffRightFile = args[i + 1];
                 } else if ([arg isEqualToString:@"-HFOpenData"]) {
                     NSString *base64 = args[i + 1];
-                    NSData *data = nil;
-                    if (@available(macOS 10.9, *)) {
-                        data = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
-                    } else {
-                        NSLog(@"Feature not available on 10.8");
-                    }
+                    NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
                     self.dataToOpen = data;
                 }
             }

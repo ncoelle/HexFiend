@@ -5,11 +5,13 @@
 //  Copyright 2007 ridiculous_fish. All rights reserved.
 //
 
-#import <Cocoa/Cocoa.h>
+#import <HexFiend/HexFiend.h>
 #import "DocumentWindow.h"
 
 @class HFByteArray, HFRepresenter, HFHexTextRepresenter, HFLineCountingRepresenter, HFLayoutRepresenter, HFDocumentOperationView, DataInspectorRepresenter;
 @class HFBinaryTemplateRepresenter;
+@class HFColumnRepresenter;
+@class HFBinaryTextRepresenter;
 
 extern NSString * const BaseDataDocumentDidChangeStringEncodingNotification;
 
@@ -17,7 +19,9 @@ extern NSString * const BaseDataDocumentDidChangeStringEncodingNotification;
     IBOutlet NSView *containerView;
     HFController *controller;
     
+    HFColumnRepresenter *columnRepresenter;
     HFLineCountingRepresenter *lineCountingRepresenter;
+    HFBinaryTextRepresenter *binaryRepresenter;
     HFHexTextRepresenter *hexRepresenter;
     HFRepresenter *asciiRepresenter;
     HFRepresenter *scrollRepresenter;
@@ -90,6 +94,7 @@ extern NSString * const BaseDataDocumentDidChangeStringEncodingNotification;
 - (IBAction)setInsertMode:sender;
 - (IBAction)setReadOnlyMode:sender;
 - (IBAction)modifyByteGrouping:sender;
+- (IBAction)customByteGrouping:(id)sender;
 - (IBAction)setLineNumberFormat:(id)sender;
 
 - (IBAction)setBookmark:sender;
